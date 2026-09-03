@@ -33,6 +33,15 @@ import zipfile
 from concurrent.futures import ThreadPoolExecutor
 
 APP_NAME = "人民日报电子版下载器"
+
+# Windows 控制台编码适配：PyInstaller 打包后 stdout 默认 UTF-8，
+# 而 cmd 默认 GBK(CP936)，导致中文乱码。通过文件描述符重开为 GBK。
+if sys.platform == "win32":
+    try:
+        sys.stdout = open(sys.stdout.fileno(), "w", encoding="gbk", closefd=False)
+        sys.stderr = open(sys.stderr.fileno(), "w", encoding="gbk", closefd=False)
+    except Exception:
+        pass
 DEFAULT_CONFIG = {
     # 抓取与网络
     "base_url": "http://paper.people.com.cn/rmrb/pc",
@@ -78,7 +87,14 @@ DEFAULT_CONFIG = {
     "auto_run_time": "08:00",
 }
 
-HERE = os.path.dirname(os.path.abspath(__file__))
+def _app_dir():
+    """应用所在目录：打包后(PyInstaller frozen)=exe 所在目录，开发时=脚本所在目录。
+    确保 config.json / 下载目录 / 日志都在 exe 同级，而非临时解压目录。"""
+    if getattr(sys, "frozen", False):
+        return os.path.dirname(os.path.abspath(sys.executable))
+    return os.path.dirname(os.path.abspath(__file__))
+
+HERE = _app_dir()
 CONFIG_PATH = os.path.join(HERE, "config.json")
 
 _log_enabled = True
@@ -890,12 +906,18 @@ def notify(cfg, title, msg):
 
 
 def install_task(cfg):
-    script = os.path.abspath(__file__)
-    py = sys.executable
     t = str(cfg.get("auto_run_time", "08:00"))
     hh, mm = t.split(":")[:2]
-    task_cmd = ('schtasks /create /tn "RMRB_Download" /tr "\\"%s\\" \\"%s\\" %s pdf" '
-                '/sc daily /st %s:%s /f') % (py, script, cfg.get("default_date", ""), hh, mm)
+    default_date = str(cfg.get("default_date", ""))
+    if getattr(sys, "frozen", False):
+        exe = os.path.abspath(sys.executable)
+        task_cmd = ('schtasks /create /tn "RMRB_Download" /tr "\\"%s\\" %s pdf" '
+                    '/sc daily /st %s:%s /f') % (exe, default_date, hh, mm)
+    else:
+        script = os.path.abspath(__file__)
+        py = sys.executable
+        task_cmd = ('schtasks /create /tn "RMRB_Download" /tr "\\"%s\\" \\"%s\\" %s pdf" '
+                    '/sc daily /st %s:%s /f') % (py, script, default_date, hh, mm)
     r = subprocess.run(task_cmd, shell=True, capture_output=True, text=True)
     print(r.stdout.strip())
     print("[调度] 已注册每日 %s 的自动下载任务（任务名 RMRB_Download）" % t)

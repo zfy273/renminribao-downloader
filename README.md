@@ -44,7 +44,17 @@
 
 ## 快速开始
 
-### 方式一：双击 BAT（推荐 Windows 用户）
+### 方式零：使用 exe（推荐，无需安装 Python）
+
+1. 从 [Releases](https://github.com/zfy273/renminribao-downloader/releases) 下载最新版 ZIP 并解压
+2. 确保 `人民日报下载器.exe` 和 `下载人民日报.bat`、`config.json` 在同一目录
+3. 双击 `下载人民日报.bat`（自动优先调用 exe），或直接双击 `人民日报下载器.exe`
+4. 按提示输入日期（回车 = 今日）、选择格式（T / PDF / B）
+5. 等待下载与合并，完成后自动打开文件所在文件夹
+
+> exe 版本已内置 Python 运行时和 pypdf 库，无需安装任何依赖。首次启动可能稍慢（需解压临时文件）。
+
+### 方式一：双击 BAT（需安装 Python）
 
 1. 确保已安装 Python 并加入 PATH（或安装了 `py` 启动器）
 2. 双击 `下载人民日报.bat`
@@ -230,8 +240,9 @@ python rmrb_downloader.py --task-remove
 
 ```
 rmrb_download/
-├── rmrb_downloader.py      # 主脚本（全配置 + 批量 + PDF/文字）
-├── 下载人民日报.bat          # Windows 双击启动器（单日/批量界面）
+├── rmrb_downloader.py      # 主脚本（全配置 + 批量 + PDF/文字 + exe 兼容）
+├── 下载人民日报.bat          # Windows 双击启动器（优先 exe，回退 Python）
+├── 人民日报下载器.exe        # 打包后的可执行文件（无需 Python，Release 提供）
 ├── build_bat.py             # BAT 生成器（GBK 编码）
 ├── config.json              # 配置文件（首次运行自动生成）
 ├── create_shortcut.ps1      # 桌面快捷方式生成脚本（含 ICO）
@@ -242,6 +253,24 @@ rmrb_download/
 ├── rmrb_download.log        # 运行日志（自动生成）
 └── pdfs_YYYYMMDD/           # 单版 PDF 目录（keep_singles=true 时保留）
 ```
+
+---
+
+## 从源码打包 exe
+
+如需自行打包单文件 exe：
+
+```bash
+# 安装 PyInstaller（推荐国内镜像）
+pip install pyinstaller -i https://pypi.tuna.tsinghua.edu.cn/simple
+
+# 打包（单文件 + 控制台 + 图标 + 内置 pypdf）
+pyinstaller --onefile --console --name "人民日报下载器" --icon "人民日报下载器.ico" --hidden-import pypdf --clean rmrb_downloader.py
+
+# 产物在 dist/人民日报下载器.exe，复制到项目根目录即可
+```
+
+打包后的 exe 已内置 Python 运行时和 pypdf 库，用户无需安装 Python。首次启动因需解压临时文件可能稍慢。
 
 ---
 

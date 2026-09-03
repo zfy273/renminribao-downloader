@@ -1,19 +1,30 @@
 @echo off
 setlocal enabledelayedexpansion
 cd /d "%~dp0"
+
+:: ===== 检测运行器：优先 exe，回退 Python =====
+set "EXE=人民日报下载器.exe"
 set "PYCMD=py -3"
 %PYCMD% --version >nul 2>nul
 if errorlevel 1 set "PYCMD=python"
-if not exist config.json (
-    %PYCMD% "rmrb_downloader.py" --init >nul 2>nul
+
+if exist "%EXE%" (
+    set "RUNNER=%EXE%"
+) else (
+    set "RUNNER=%PYCMD% "rmrb_downloader.py""
 )
-:: 读取配置：颜色 / 标题 / 批量开关 / 合并模式
-for /f "delims=" %%i in ('%PYCMD% -c "import json,io;c=json.load(io.open('config.json',encoding='utf-8'));print(c.get('color_background','0')+c.get('color_foreground','A'))"') do set CLR=%%i
+
+if not exist config.json (
+    call %RUNNER% --init >nul 2>nul
+)
+
+:: ===== 读取配置：颜色 / 标题 / 批量开关 / 合并模式 =====
+for /f "delims=" %%i in ('%PYCMD% -c "import json,io;c=json.load(io.open(''config.json'',encoding=''utf-8''));print(c.get(''color_background'',''0'')+c.get(''color_foreground'',''A''))"') do set CLR=%%i
 if defined CLR color !CLR!
-for /f "delims=" %%i in ('%PYCMD% -c "import json,io;c=json.load(io.open('config.json',encoding='utf-8'));print(c.get('window_title','人民日报电子版下载器'))"') do set WT=%%i
+for /f "delims=" %%i in ('%PYCMD% -c "import json,io;c=json.load(io.open(''config.json'',encoding=''utf-8''));print(c.get(''window_title'',''人民日报电子版下载器''))"') do set WT=%%i
 if defined WT title !WT!
-for /f "delims=" %%i in ('%PYCMD% -c "import json,io;c=json.load(io.open('config.json',encoding='utf-8'));print('1' if c.get('batch_enable') else '0')"') do set BATCH=%%i
-for /f "delims=" %%i in ('%PYCMD% -c "import json,io;c=json.load(io.open('config.json',encoding='utf-8'));print(c.get('batch_merge_mode','each'))"') do set DEFMODE=%%i
+for /f "delims=" %%i in ('%PYCMD% -c "import json,io;c=json.load(io.open(''config.json'',encoding=''utf-8''));print(''1'' if c.get(''batch_enable'') else ''0'')"') do set BATCH=%%i
+for /f "delims=" %%i in ('%PYCMD% -c "import json,io;c=json.load(io.open(''config.json'',encoding=''utf-8''));print(c.get(''batch_merge_mode'',''each''))"') do set DEFMODE=%%i
 
 if "!BATCH!"=="1" goto :batch_mode
 
@@ -22,6 +33,7 @@ echo ============================================================
 echo           人民日报电子版 PDF/文字 下载工具（单日模式）
 echo ============================================================
 echo.
+echo  运行器: !RUNNER!
 echo  提示: 批量下载请先在 config.json 设置 batch_enable=true
 echo.
 echo  1. 输入日期（格式 YYYYMMDD，例如 20260902），回车=今日
@@ -36,7 +48,7 @@ if /i "!rfmt!"=="B" set FMT=both
 if not defined FMT set FMT=pdf
 echo [信息] 日期=!rdate!  格式=!FMT!
 echo.
-%PYCMD% "rmrb_downloader.py" !rdate! !FMT!
+call %RUNNER% !rdate! !FMT!
 if errorlevel 1 goto :err
 echo.
 echo [完成] 下载完成！文件位置已自动打开。
@@ -47,6 +59,8 @@ exit /b 0
 echo ============================================================
 echo           人民日报电子版 PDF/文字 下载工具（批量模式）
 echo ============================================================
+echo.
+echo  运行器: !RUNNER!
 echo.
 echo  日期范围格式（逗号分隔多个）:
 echo    起始-结束  例: 20260901-20260903
@@ -74,7 +88,7 @@ if "!rrange!"=="" (
     pause
     exit /b 1
 )
-%PYCMD% "rmrb_downloader.py" --batch "!rrange!" !FMT! --merge-mode !MODE!
+call %RUNNER% --batch "!rrange!" !FMT! --merge-mode !MODE!
 if errorlevel 1 goto :err
 echo.
 echo [完成] 批量下载完成！文件位置已自动打开。

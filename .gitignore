@@ -11,6 +11,12 @@ __pycache__/
 *.pyc
 *.pyo
 
+# PyInstaller 构建产物
+build/
+dist/
+*.spec
+人民日报下载器.exe
+
 # 系统
 Thumbs.db
 .DS_Store
