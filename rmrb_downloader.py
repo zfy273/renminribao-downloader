@@ -930,70 +930,16 @@ def remove_task():
     print("[调度] 已删除自动下载任务")
 
 
-# ------------------------- 主流程 -------------------------
 
-def main():
-    global _log_enabled, _log_level
-    cfg = load_config()
-    cfg, cfg_warns = validate_config(cfg)
-    for w in cfg_warns:
-        print("[配置警告] %s" % w)
-    if cfg_warns:
-        save_config(cfg)
-    _log_level = str(cfg.get("log_level", "normal"))
-    _log_enabled = bool(cfg.get("log_file"))
 
-    args = sys.argv[1:]
+# ------------------------- 单日下载（独立函数） -------------------------
 
-    if "--init" in args:
-        save_config(cfg)
-        print("已生成/更新 config.json")
-        return 0
-    if "--task-install" in args:
-        install_task(cfg)
-        return 0
-    if "--task-remove" in args:
-        remove_task()
-        return 0
-
-    # 批量模式
-    if "--batch" in args:
-        i = args.index("--batch")
-        expr = args[i + 1] if i + 1 < len(args) else ""
-        fmt = ""
-        merge_mode = str(cfg.get("batch_merge_mode", "each"))
-        j = 0
-        while j < len(args):
-            if args[j] == "--merge-mode" and j + 1 < len(args):
-                merge_mode = args[j + 1].lower()
-            elif re.fullmatch(r"(text|pdf|both)", args[j].lower()):
-                fmt = args[j].lower()
-            j += 1
-        fmt = fmt or str(cfg.get("default_format", "pdf"))
-        if fmt not in ("text", "pdf", "both"):
-            print("[错误] 格式参数应为 text / pdf / both")
-            return 1
-        if merge_mode not in ("each", "all"):
-            print("[错误] --merge-mode 应为 each / all")
-            return 1
-        return batch_main(cfg, expr, fmt, merge_mode)
-
-    # 单日模式
-    if args and re.fullmatch(r"\d+", args[0]):
-        # 第一个参数是纯数字：视为日期，必须恰好 8 位
-        if not re.fullmatch(r"\d{8}", args[0]):
-            print("[错误] 日期应为 8 位数字 YYYYMMDD（例如 20260902），当前输入: %s" % args[0])
-            return 1
-        date_arg = args[0]
-        fmt_arg = args[1] if len(args) > 1 else ""
-    elif args and args[0].lower() in ("text", "pdf", "both"):
-        # 只给了格式，日期走默认/今日
-        date_arg = ""
-        fmt_arg = args[0]
-    else:
-        date_arg = ""
-        fmt_arg = args[0] if args else ""
-
+def single_day_main(cfg, date_arg="", fmt_arg=""):
+    """单日下载主逻辑（从 main 中提取，供命令行和交互菜单共用）。
+    date_arg: 8 位日期字符串，空 = 默认/今日
+    fmt_arg: text/pdf/both，空 = 默认格式
+    返回 0 成功，1 失败
+    """
     if not date_arg:
         date_arg = str(cfg.get("default_date", "")).strip() or \
             datetime.date.today().strftime("%Y%m%d")
@@ -1061,6 +1007,262 @@ def main():
     print("\n[错误] 本次未生成任何文件：下载或合并失败，请查看上方具体报错。")
     log("任务失败 日期=%s 格式=%s" % (date_disp, fmt), "error")
     return 1
+
+
+# ------------------------- 交互式菜单 -------------------------
+
+def _input(prompt=""):
+    """安全的 input，处理 EOF/中断"""
+    try:
+        return input(prompt)
+    except (EOFError, KeyboardInterrupt):
+        print()
+        return None
+
+
+def interactive_single_day(cfg):
+    """交互式单日下载"""
+    print("\n" + "-" * 50)
+    print("  单日下载")
+    print("-" * 50)
+    date_input = _input("请输入日期（YYYYMMDD，回车=今日）: ")
+    if date_input is None:
+        return 0
+    date_input = date_input.strip()
+    if not date_input:
+        date_input = datetime.date.today().strftime("%Y%m%d")
+
+    fmt_input = _input("请选择格式 [T]文字 / [P]PDF / [B]两者（回车=PDF）: ")
+    if fmt_input is None:
+        return 0
+    fmt_map = {"T": "text", "P": "pdf", "B": "both"}
+    fmt = fmt_map.get(fmt_input.strip().upper(), "pdf")
+
+    print()
+    return single_day_main(cfg, date_input, fmt)
+
+
+def interactive_batch(cfg):
+    """交互式批量下载"""
+    print("\n" + "-" * 50)
+    print("  批量下载")
+    print("-" * 50)
+    print("日期范围格式：20260901-20260903,20260905")
+    print("  20260801-  表示从该日期到今日")
+    print("  单个日期如 20260903 也可")
+    expr = _input("请输入批量日期范围（回车=今日）: ")
+    if expr is None:
+        return 0
+    expr = expr.strip()
+    if not expr:
+        expr = datetime.date.today().strftime("%Y%m%d")
+
+    mm = _input("合并模式 [E]每天单独合并 / [A]全部合并为一个（回车=E）: ")
+    if mm is None:
+        return 0
+    merge_mode = "all" if mm.strip().upper() == "A" else "each"
+
+    fmt_input = _input("请选择格式 [T]文字 / [P]PDF / [B]两者（回车=PDF）: ")
+    if fmt_input is None:
+        return 0
+    fmt_map = {"T": "text", "P": "pdf", "B": "both"}
+    fmt = fmt_map.get(fmt_input.strip().upper(), "pdf")
+
+    print()
+    return batch_main(cfg, expr, fmt, merge_mode)
+
+
+def interactive_config(cfg):
+    """交互式配置管理"""
+    while True:
+        print("\n" + "-" * 50)
+        print("  配置管理")
+        print("-" * 50)
+        print("  当前配置：")
+        print("    默认日期: %s" % (cfg.get("default_date") or "(今日)"))
+        print("    默认格式: %s" % cfg.get("default_format", "pdf"))
+        print("    下载路径: %s" % (cfg.get("download_path") or "(当前目录)"))
+        print("    批量开关: %s" % ("开启" if cfg.get("batch_enable") else "关闭"))
+        print("    批量合并: %s" % cfg.get("batch_merge_mode", "each"))
+        print("    保留单版: %s" % ("是" if cfg.get("keep_singles", True) else "否"))
+        print("    自动打开文件夹: %s" % ("是" if cfg.get("open_folder_after", True) else "否"))
+        print("    文字输出格式: %s" % cfg.get("text_output_format", "TXT"))
+        print("    下载限速(kbps): %s" % (cfg.get("rate_limit_kbps", 0) or "不限"))
+        print()
+        print("  1. 修改默认格式")
+        print("  2. 修改下载路径")
+        print("  3. 切换批量开关")
+        print("  4. 修改批量合并模式")
+        print("  5. 切换保留单版")
+        print("  6. 切换自动打开文件夹")
+        print("  7. 修改文字输出格式")
+        print("  8. 修改下载限速")
+        print("  9. 恢复默认配置")
+        print("  0. 返回主菜单")
+        print("-" * 50)
+        choice = _input("请选择: ")
+        if choice is None:
+            return
+        choice = choice.strip()
+
+        if choice == "1":
+            v = _input("默认格式 [text/pdf/both]（当前 %s）: " % cfg.get("default_format"))
+            if v and v.strip().lower() in ("text", "pdf", "both"):
+                cfg["default_format"] = v.strip().lower()
+                save_config(cfg)
+                print("[配置] 已更新默认格式为 %s" % cfg["default_format"])
+        elif choice == "2":
+            v = _input("下载路径（空=当前目录，当前 %s）: " % (cfg.get("download_path") or "空"))
+            if v is not None:
+                cfg["download_path"] = v.strip()
+                save_config(cfg)
+                print("[配置] 已更新下载路径为 %s" % (cfg["download_path"] or "(当前目录)"))
+        elif choice == "3":
+            cfg["batch_enable"] = not cfg.get("batch_enable", False)
+            save_config(cfg)
+            print("[配置] 批量开关已切换为 %s" % ("开启" if cfg["batch_enable"] else "关闭"))
+        elif choice == "4":
+            v = _input("批量合并模式 [each/all]（当前 %s）: " % cfg.get("batch_merge_mode", "each"))
+            if v and v.strip().lower() in ("each", "all"):
+                cfg["batch_merge_mode"] = v.strip().lower()
+                save_config(cfg)
+                print("[配置] 已更新批量合并模式为 %s" % cfg["batch_merge_mode"])
+        elif choice == "5":
+            cfg["keep_singles"] = not cfg.get("keep_singles", True)
+            save_config(cfg)
+            print("[配置] 保留单版已切换为 %s" % ("是" if cfg["keep_singles"] else "否"))
+        elif choice == "6":
+            cfg["open_folder_after"] = not cfg.get("open_folder_after", True)
+            save_config(cfg)
+            print("[配置] 自动打开文件夹已切换为 %s" % ("是" if cfg["open_folder_after"] else "否"))
+        elif choice == "7":
+            v = _input("文字输出格式 [TXT/DOC/DOCX]（当前 %s）: " % cfg.get("text_output_format", "TXT"))
+            if v and v.strip().upper() in ("TXT", "DOC", "DOCX"):
+                cfg["text_output_format"] = v.strip().upper()
+                save_config(cfg)
+                print("[配置] 已更新文字输出格式为 %s" % cfg["text_output_format"])
+        elif choice == "8":
+            v = _input("下载限速 kbps（0=不限，当前 %s）: " % cfg.get("rate_limit_kbps", 0))
+            if v and v.strip().isdigit():
+                cfg["rate_limit_kbps"] = int(v.strip())
+                save_config(cfg)
+                print("[配置] 已更新下载限速为 %s kbps" % cfg["rate_limit_kbps"])
+        elif choice == "9":
+            cfg = {}
+            cfg, _ = validate_config(cfg)
+            save_config(cfg)
+            print("[配置] 已恢复默认配置")
+        elif choice == "0":
+            return
+        else:
+            print("[错误] 无效选择")
+
+
+def interactive_menu(cfg):
+    """主交互菜单：无参数运行时进入（exe 双击 / 命令行无参数）"""
+    # 确保 pypdf 可用（源码运行时自动安装；exe 已内置）
+    try:
+        ensure_pypdf()
+    except Exception as e:
+        print("[警告] pypdf 检查失败: %s（PDF 合并可能不可用）" % e)
+
+    while True:
+        print("\n" + "=" * 60)
+        print("         %s" % APP_NAME)
+        print("=" * 60)
+        print("  1. 单日下载")
+        print("  2. 批量下载")
+        print("  3. 配置管理")
+        print("  4. 退出")
+        print("=" * 60)
+        choice = _input("请选择 [1-4]: ")
+        if choice is None:
+            print("\n再见！")
+            return 0
+        choice = choice.strip()
+
+        if choice == "1":
+            rc = interactive_single_day(cfg)
+            _input("\n按回车键返回主菜单...")
+        elif choice == "2":
+            rc = interactive_batch(cfg)
+            _input("\n按回车键返回主菜单...")
+        elif choice == "3":
+            interactive_config(cfg)
+        elif choice == "4":
+            print("再见！")
+            return 0
+        else:
+            print("[错误] 无效选择，请输入 1-4")
+
+
+# ------------------------- 主流程 -------------------------
+
+def main():
+    global _log_enabled, _log_level
+    cfg = load_config()
+    cfg, cfg_warns = validate_config(cfg)
+    for w in cfg_warns:
+        print("[配置警告] %s" % w)
+    if cfg_warns:
+        save_config(cfg)
+    _log_level = str(cfg.get("log_level", "normal"))
+    _log_enabled = bool(cfg.get("log_file"))
+
+    args = sys.argv[1:]
+
+    if "--init" in args:
+        save_config(cfg)
+        print("已生成/更新 config.json")
+        return 0
+    if "--task-install" in args:
+        install_task(cfg)
+        return 0
+    if "--task-remove" in args:
+        remove_task()
+        return 0
+
+    # 批量模式
+    if "--batch" in args:
+        i = args.index("--batch")
+        expr = args[i + 1] if i + 1 < len(args) else ""
+        fmt = ""
+        merge_mode = str(cfg.get("batch_merge_mode", "each"))
+        j = 0
+        while j < len(args):
+            if args[j] == "--merge-mode" and j + 1 < len(args):
+                merge_mode = args[j + 1].lower()
+            elif re.fullmatch(r"(text|pdf|both)", args[j].lower()):
+                fmt = args[j].lower()
+            j += 1
+        fmt = fmt or str(cfg.get("default_format", "pdf"))
+        if fmt not in ("text", "pdf", "both"):
+            print("[错误] 格式参数应为 text / pdf / both")
+            return 1
+        if merge_mode not in ("each", "all"):
+            print("[错误] --merge-mode 应为 each / all")
+            return 1
+        return batch_main(cfg, expr, fmt, merge_mode)
+
+    # 无参数：进入交互菜单（exe 双击 / 命令行无参数）
+    if not args:
+        return interactive_menu(cfg)
+
+    # 单日模式（有参数）
+    if args and re.fullmatch(r"\d+", args[0]):
+        if not re.fullmatch(r"\d{8}", args[0]):
+            print("[错误] 日期应为 8 位数字 YYYYMMDD（例如 20260902），当前输入: %s" % args[0])
+            return 1
+        date_arg = args[0]
+        fmt_arg = args[1] if len(args) > 1 else ""
+    elif args and args[0].lower() in ("text", "pdf", "both"):
+        date_arg = ""
+        fmt_arg = args[0]
+    else:
+        date_arg = ""
+        fmt_arg = args[0] if args else ""
+
+    return single_day_main(cfg, date_arg, fmt_arg)
 
 
 if __name__ == "__main__":
