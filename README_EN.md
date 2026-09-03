@@ -10,7 +10,7 @@ A pure-Python tool for automatically downloading and merging the electronic edit
 
 ---
 
-## ✨ Features
+## Features
 
 - **PDF mode**: downloads all page PDFs of the day and merges them into one complete file
 - **Text mode**: extracts article body text from all pages, outputs as `TXT` / `DOC` / `DOCX` (zero extra dependencies)
@@ -23,7 +23,7 @@ A pure-Python tool for automatically downloading and merging the electronic edit
 
 ---
 
-## 📦 Requirements
+## Requirements
 
 | Item | Requirement |
 |---|---|
@@ -42,7 +42,7 @@ A pure-Python tool for automatically downloading and merging the electronic edit
 
 ---
 
-## 🚀 Quick Start
+## Quick Start
 
 ### Option 1: Double-click the BAT (recommended for Windows users)
 
@@ -81,7 +81,7 @@ python rmrb_downloader.py --task-remove
 
 ---
 
-## ⚙️ Configuration (config.json)
+## Configuration (config.json)
 
 `config.json` is generated automatically on first run. All options:
 
@@ -163,7 +163,7 @@ python rmrb_downloader.py --task-remove
 
 ---
 
-## 📅 Batch Download Details
+## Batch Download Details
 
 ### Date-range expression
 
@@ -195,7 +195,7 @@ Edit `config.json`, set `"batch_enable"` to `true`, then double-click the BAT to
 
 ---
 
-## 📄 Text Output Formats
+## Text Output Formats
 
 | Format | Description | Dependencies |
 |---|---|---|
@@ -207,7 +207,7 @@ Switch by setting `"text_output_format": "DOCX"` etc. in `config.json`.
 
 ---
 
-## ❓ Common Errors & Solutions
+## Common Errors & Solutions
 
 | Error message | Cause | Solution |
 |---|---|---|
@@ -226,7 +226,7 @@ Switch by setting `"text_output_format": "DOCX"` etc. in `config.json`.
 
 ---
 
-## 📁 Project Structure
+## Project Structure
 
 ```
 rmrb_download/
@@ -245,7 +245,7 @@ rmrb_download/
 
 ---
 
-## 🧪 Testing
+## Testing
 
 ```bash
 # Error-handling & boundary tests (no download, instant)
@@ -260,7 +260,7 @@ Coverage: future date / invalid date / invalid format / batch expression parsing
 
 ---
 
-## ⚠️ Disclaimer
+## Disclaimer
 
 - This tool is **for personal learning and research only**; any commercial use is prohibited.
 - People's Daily is copyrighted by People's Daily Press. Downloaded content must comply with applicable laws and the website's terms of use.
@@ -269,6 +269,6 @@ Coverage: future date / invalid date / invalid format / batch expression parsing
 
 ---
 
-## 📄 License
+## License
 
 MIT License

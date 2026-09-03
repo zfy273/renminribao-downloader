@@ -10,7 +10,7 @@
 
 ---
 
-## ✨ 功能特性
+## 功能特性
 
 - **PDF 模式**：自动下载当日全部版面 PDF 并合并为一个完整版文件
 - **文字模式**：抓取全部版面文章正文，输出为 `TXT` / `DOC` / `DOCX`（零额外依赖）
@@ -23,7 +23,7 @@
 
 ---
 
-## 📦 环境要求
+## 环境要求
 
 | 项目 | 要求 |
 |---|---|
@@ -42,7 +42,7 @@
 
 ---
 
-## 🚀 快速开始
+## 快速开始
 
 ### 方式一：双击 BAT（推荐 Windows 用户）
 
@@ -81,7 +81,7 @@ python rmrb_downloader.py --task-remove
 
 ---
 
-## ⚙️ 配置说明（config.json）
+## 配置说明（config.json）
 
 首次运行自动生成 `config.json`。所有配置项及含义如下：
 
@@ -163,7 +163,7 @@ python rmrb_downloader.py --task-remove
 
 ---
 
-## 📅 批量下载详解
+## 批量下载详解
 
 ### 日期范围表达式
 
@@ -195,7 +195,7 @@ python rmrb_downloader.py --task-remove
 
 ---
 
-## 📄 文字版输出格式
+## 文字版输出格式
 
 | 格式 | 说明 | 依赖 |
 |---|---|---|
@@ -207,7 +207,7 @@ python rmrb_downloader.py --task-remove
 
 ---
 
-## ❓ 常见报错与解决方案
+## 常见报错与解决方案
 
 | 报错信息 | 原因 | 解决方法 |
 |---|---|---|
@@ -226,7 +226,7 @@ python rmrb_downloader.py --task-remove
 
 ---
 
-## 📁 项目结构
+## 项目结构
 
 ```
 rmrb_download/
@@ -245,7 +245,7 @@ rmrb_download/
 
 ---
 
-## 🧪 测试
+## 测试
 
 ```bash
 # 错误处理与边界测试（不下载，秒级）
@@ -259,7 +259,7 @@ python test_download.py
 
 ---
 
-## ⚠️ 免责声明
+## 免责声明
 
 - 本工具**仅供个人学习与研究使用**，不得用于任何商业活动。
 - 《人民日报》版权归人民日报社所有，下载内容请遵守相关法律法规与网站使用条款。
@@ -268,6 +268,6 @@ python test_download.py
 
 ---
 
-## 📄 License
+## License
 
 MIT License
