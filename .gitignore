@@ -1,0 +1,16 @@
+﻿# 下载产物
+人民日报-*.pdf
+人民日报-*.txt
+人民日报-*.doc
+人民日报-*.docx
+pdfs_*/
+*.log
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# 系统
+Thumbs.db
+.DS_Store
