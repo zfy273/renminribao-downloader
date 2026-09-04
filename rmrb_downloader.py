@@ -357,13 +357,26 @@ def get_nodes(dl, ym, dd):
 
 # ------------------------- PDF -------------------------
 
-def ensure_pypdf():
+def ensure_pypdf(interactive=False):
+    """确保 pypdf 可用。exe 模式已内置直接返回 True；
+    源码模式缺少时，interactive=True 则提示 Y/N，否则自动安装。"""
     try:
         import pypdf  # noqa
         return True
     except ImportError:
         pass
-    print("[提示] 未检测到 pypdf 库，正在自动安装（需联网）...")
+    if getattr(sys, "frozen", False):
+        print("[错误] exe 内置 pypdf 加载失败，请重新下载发布包。")
+        return False
+    if interactive:
+        try:
+            ans = input("[提示] 未检测到 pypdf 库（PDF 合并需要），是否自动安装？(Y/N): ").strip().upper()
+        except (EOFError, KeyboardInterrupt):
+            ans = "N"
+        if ans != "Y":
+            print("[信息] 已跳过 pypdf 安装，PDF 合并不可用（文字版仍可使用）。")
+            return False
+    print("[提示] 正在安装 pypdf（需联网，优先国内镜像）...")
     cmds = [
         [sys.executable, "-m", "pip", "install", "--disable-pip-version-check", "-q", "pypdf"],
         [sys.executable, "-m", "pip", "install", "--disable-pip-version-check", "-q",
@@ -374,9 +387,11 @@ def ensure_pypdf():
             r = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
             if r.returncode == 0:
                 import pypdf  # noqa
+                print("[提示] pypdf 安装成功。")
                 return True
         except Exception:
             continue
+    print("[错误] pypdf 安装失败，请检查网络后手动执行: pip install pypdf")
     return False
 
 
@@ -1162,7 +1177,7 @@ def interactive_menu(cfg):
     """主交互菜单：无参数运行时进入（exe 双击 / 命令行无参数）"""
     # 确保 pypdf 可用（源码运行时自动安装；exe 已内置）
     try:
-        ensure_pypdf()
+        ensure_pypdf(interactive=True)
     except Exception as e:
         print("[警告] pypdf 检查失败: %s（PDF 合并可能不可用）" % e)
 
