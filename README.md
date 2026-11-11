@@ -35,6 +35,15 @@ cargo run
 # 下载今日 PDF
 cargo run -- download
 
+# 长选项写法
+cargo run -- download --on 20260903 --output pdf
+cargo run -- batch --dates "20260901-20260903" --output both --merge-mode all
+
+# 校验日期、查看当前配置和输出文件
+cargo run -- check-date 20260903
+cargo run -- config
+cargo run -- list
+
 # 下载指定日期的 PDF、文字版或两者
 cargo run -- download 20260903 pdf
 cargo run -- download 20260903 text

@@ -132,7 +132,7 @@ impl Default for Config {
                         download_dir: "{date}".into(),
             merged_filename: "人民日报-{date}-完整版".into(),
             auto_merge: true,
-            keep_singles: true,
+            keep_singles: false,
             open_folder_after: true,
             text_output_format: "TXT".into(),
             text_filename: "人民日报-{date}-文字版".into(),
@@ -390,11 +390,19 @@ impl Config {
 
     pub fn output_root(&self) -> Result<PathBuf> {
         let root = if self.download_path.trim().is_empty() {
-            Self::path()?.parent().context("无法确定程序目录")?.to_path_buf()
+            Self::path()?
+                .parent()
+                .context("无法确定程序目录")?
+                .to_path_buf()
         } else {
             let path = PathBuf::from(&self.download_path);
-            if path.is_absolute() { path } else {
-                Self::path()?.parent().context("无法确定程序目录")?.join(path)
+            if path.is_absolute() {
+                path
+            } else {
+                Self::path()?
+                    .parent()
+                    .context("无法确定程序目录")?
+                    .join(path)
             }
         };
         Ok(root)
