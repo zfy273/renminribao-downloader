@@ -5,7 +5,7 @@ use std::{fs, path::PathBuf, process::Command, thread, time::Duration};
 
 fn select_format(config: &Config, value: Option<&str>) -> Result<String> {
     let format = value.unwrap_or(&config.default_format).to_ascii_lowercase();
-    if !["text", "pdf", "both"].contains(&format.as_str()) { bail!("格式参数应为 text / pdf / both"); }
+    if !["text", "md", "pdf", "both"].contains(&format.as_str()) { bail!("格式参数应为 text / md / pdf / both"); }
     Ok(format)
 }
 
@@ -30,11 +30,13 @@ fn record(config: &Config, message: &str) {
     }
 }
 
-fn issue_text(config: &Config, downloader: &Downloader, date: &str, editions: &[String], root: &PathBuf) -> Result<Option<PathBuf>> {
+fn issue_text(config: &Config, downloader: &Downloader, date: &str, editions: &[String], root: &PathBuf, requested_format: Option<&str>) -> Result<Option<PathBuf>> {
     println!("  共 {} 个版面，开始抓取文章正文...", editions.len());
     let content = downloader.crawl_text(date, editions);
     if content.iter().all(|e| e.articles.is_empty()) { bail!("未抓到任何文章"); }
-    let format = config.text_output_format.to_ascii_uppercase();
+    let format = requested_format
+        .unwrap_or(config.text_output_format.as_str())
+        .to_ascii_uppercase();
     let lines = output::text_lines(&display_date(date), &content, config.text_include_edition, format == "MD");
     let path = output::output_path(config, root, &display_date(date), &format);
     output::write_text(&lines, &path)?;
@@ -83,8 +85,9 @@ pub fn download_one(config: &Config, date: Option<&str>, format: Option<&str>) -
     if ["pdf", "both"].contains(&format.as_str()) {
         if let Some(path) = issue_pdf(config, &downloader, &date, &editions, &root, config.auto_merge)? { result = Some(path); }
     }
-    if ["text", "both"].contains(&format.as_str()) {
-        if let Some(path) = issue_text(config, &downloader, &date, &editions, &root)? { result = Some(path); }
+    if ["text", "md", "both"].contains(&format.as_str()) {
+        let text_format = (format == "md").then_some("MD");
+        if let Some(path) = issue_text(config, &downloader, &date, &editions, &root, text_format)? { result = Some(path); }
     }
     if let Some(path) = result.filter(|p| p.exists()) {
         open_output(&path, config.open_folder_after);
@@ -125,8 +128,9 @@ pub fn download_batch(config: &Config, expression: &str, requested_format: Optio
                 if !missing.is_empty() { day_ok = false; }
             } else if issue_pdf(config, &downloader, date, &editions, &root, true)?.is_none() { day_ok = false; }
         }
-        if ["text", "both"].contains(&format.as_str()) {
-            match issue_text(config, &downloader, date, &editions, &root) {
+        if ["text", "md", "both"].contains(&format.as_str()) {
+            let text_format = (format == "md").then_some("MD");
+            match issue_text(config, &downloader, date, &editions, &root, text_format) {
                 Ok(Some(path)) if mode == "all" => {
                     let text = fs::read_to_string(&path)?;
                     all_text.push(text);
@@ -149,8 +153,8 @@ pub fn download_batch(config: &Config, expression: &str, requested_format: Optio
             Err(error) => { pdf_merge_ok = false; eprintln!("[错误] 全部合并失败，单版 PDF 已保留: {error:#}"); }
         }
     }
-    if mode == "all" && ["text", "both"].contains(&format.as_str()) && !all_text.is_empty() {
-        let output_format = config.text_output_format.to_ascii_uppercase();
+    if mode == "all" && ["text", "md", "both"].contains(&format.as_str()) && !all_text.is_empty() {
+        let output_format = if format == "md" { "MD".into() } else { config.text_output_format.to_ascii_uppercase() };
         let path = root.join(format!("人民日报-{span}-文字版.{}", output_format.to_ascii_lowercase()));
         let mut lines = Vec::new();
         for (index, content) in all_text.iter().enumerate() {
@@ -187,16 +191,16 @@ pub fn interactive(config: &mut Config) -> Result<()> {
         match input("请选择 [1-4]: ")?.as_deref() {
             Some("1") => {
                 let date = input("请输入日期（YYYYMMDD，回车=今日）: ")?.unwrap_or_default();
-                let format = input("格式 [T]文字 / [P]PDF / [B]两者（回车=PDF）: ")?.unwrap_or_default();
-                let format = match format.to_ascii_uppercase().as_str() { "T" => "text", "B" => "both", _ => "pdf" };
+                let format = input("格式 [T]文字 / [M]MD / [P]PDF / [B]两者（回车=PDF）: ")?.unwrap_or_default();
+                let format = match format.to_ascii_uppercase().as_str() { "T" => "text", "M" => "md", "B" => "both", _ => "pdf" };
                 if let Err(error) = download_one(config, Some(&date), Some(format)) { eprintln!("[错误] {error:#}"); }
                 let _ = input("按回车返回...");
             }
             Some("2") => {
                 let dates = input("请输入日期范围: ")?.unwrap_or_default();
                 let mode = input("合并模式 [E]每天单独 / [A]全部合并（回车=默认）: ")?.unwrap_or_default();
-                let format = input("格式 [T]文字 / [P]PDF / [B]两者（回车=PDF）: ")?.unwrap_or_default();
-                let format = match format.to_ascii_uppercase().as_str() { "T" => "text", "B" => "both", _ => "pdf" };
+                let format = input("格式 [T]文字 / [M]MD / [P]PDF / [B]两者（回车=PDF）: ")?.unwrap_or_default();
+                let format = match format.to_ascii_uppercase().as_str() { "T" => "text", "M" => "md", "B" => "both", _ => "pdf" };
                 let mode = match mode.to_ascii_uppercase().as_str() { "A" => "all", "E" => "each", _ => &config.batch_merge_mode };
                 if let Err(error) = download_batch(config, &dates, Some(format), Some(mode)) { eprintln!("[错误] {error:#}"); }
                 let _ = input("按回车返回...");

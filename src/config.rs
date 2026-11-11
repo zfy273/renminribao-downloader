@@ -374,7 +374,7 @@ impl Config {
             eprintln!("[配置警告] concurrent 越界，恢复默认值");
             self.concurrent = 1;
         }
-        if !["text", "pdf", "both"].contains(&self.default_format.to_lowercase().as_str()) {
+        if !["text", "md", "pdf", "both"].contains(&self.default_format.to_lowercase().as_str()) {
             self.default_format = "pdf".into();
         }
         if !["TXT", "MD"].contains(&self.text_output_format.to_uppercase().as_str()) {

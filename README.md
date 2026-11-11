@@ -38,6 +38,7 @@ cargo run -- download
 # 下载指定日期的 PDF、文字版或两者
 cargo run -- download 20260903 pdf
 cargo run -- download 20260903 text
+cargo run -- download 20260903 md
 cargo run -- download 20260903 both
 
 # 批量下载，每个日期单独合并
