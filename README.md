@@ -1,6 +1,5 @@
 # 人民日报电子版下载器 / People's Daily Downloader
 
-> 中文 | [English](docs/README_EN.md) | [日本語](docs/README_JA.md) | [한국어](docs/README_KO.md) | [Français](docs/README_FR.md) | [Deutsch](docs/README_DE.md) | [Italiano](docs/README_IT.md) | [हिन्दी](docs/README_HI.md) | [ไทย](docs/README_TH.md) | [العربية](docs/README_AR.md) | [Русский](docs/README_RU.md) | [Español](docs/README_ES.md)
 
 [![Python](https://img.shields.io/badge/Python-3.8%2B-blue)](https://www.python.org/)
 [![Platform](https://img.shields.io/badge/Platform-Windows-lightgrey)]()
@@ -13,7 +12,7 @@
 ## 功能特性
 
 - **PDF 模式**：自动下载当日全部版面 PDF 并合并为一个完整版文件
-- **文字模式**：抓取全部版面文章正文，输出为 `TXT` / `DOC` / `DOCX`（零额外依赖）
+- **文字模式**：抓取全部版面文章正文，输出为 `TXT` / `DOC` / `DOCX` / `MD`（零额外依赖）
 - **both 模式**：PDF 与文字版同时生成
 - **批量下载**：支持日期范围表达式，可每日期单独合并或全部合并为一个跨日期大文件
 - **全配置化**：30+ 配置项（网络、界面、输出、限速、代理、调度等）通过 `config.json` 调节
@@ -149,7 +148,7 @@ python rmrb_downloader.py --task-remove
 
 | 键 | 类型 | 默认值 | 说明 |
 |---|---|---|---|
-| `text_output_format` | string | `"TXT"` | 文字版输出格式：`TXT` / `DOC` / `DOCX` |
+| `text_output_format` | string | `"TXT"` | 文字版输出格式：`TXT` / `DOC` / `DOCX` / `MD` |
 | `text_filename` | string | `"人民日报-{date}-文字版"` | 文字版文件名模板（不含扩展名） |
 | `text_include_edition` | bool | `true` | 文字版是否包含版面标题分隔 |
 

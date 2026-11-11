@@ -74,7 +74,7 @@ DEFAULT_CONFIG = {
     "keep_singles": True,
     "open_folder_after": True,
     # 文字输出
-    "text_output_format": "TXT",     # TXT / DOC / DOCX
+    "text_output_format": "TXT",     # TXT / DOC / DOCX / MD
     "text_filename": "人民日报-{date}-文字版",
     "text_include_edition": True,
     # 日志与通知
@@ -205,7 +205,7 @@ def validate_config(cfg):
     if str(cfg.get("default_format", "pdf")).lower() not in ("text", "pdf", "both"):
         warns.append("default_format=%r 非法，已回退为 pdf" % cfg.get("default_format"))
         cfg["default_format"] = "pdf"
-    if str(cfg.get("text_output_format", "TXT")).upper() not in ("TXT", "DOC", "DOCX"):
+    if str(cfg.get("text_output_format", "TXT")).upper() not in ("TXT", "DOC", "DOCX", "MD"):
         warns.append("text_output_format=%r 非法，已回退为 TXT" % cfg.get("text_output_format"))
         cfg["text_output_format"] = "TXT"
     if str(cfg.get("batch_merge_mode", "each")).lower() not in ("each", "all"):
@@ -526,23 +526,25 @@ def run_single_day_pdf(dl, date_arg, date_disp, nodes, out_root, merge_mode="aut
 
 def parse_article(html):
     title = ""
-    m = re.search(r"<h1[^>]*>\s*<p>(.*?)</p>\s*</h1>", html, re.S)
+    m = re.search(r"<h1[^>]*>\s*<p[^>]*>(.*?)</p>\s*</h1>", html, re.S)
     if m:
-        title = re.sub(r"<[^>]+>", "", m.group(1)).strip()
+        title = html_mod.unescape(re.sub(r"<[^>]+>", "", m.group(1))).strip()
     if not title:
         m = re.search(r"<title>\s*(.*?)\s*</title>", html, re.S)
         if m:
-            title = m.group(1).strip()
+            title = html_mod.unescape(m.group(1)).strip()
     body = ""
     m = re.search(r"<!--enpcontent-->(.*?)<!--/enpcontent-->", html, re.S)
     if m:
         body = m.group(1)
     paras = []
     for pm in re.finditer(r"<p[^>]*>(.*?)</p>", body, re.S):
-        text = re.sub(r"<[^>]+>", "", pm.group(1))
+        inner = pm.group(1)
+        is_heading = bool(re.search(r"<strong\b", inner, re.I))
+        text = re.sub(r"<[^>]+>", "", inner)
         text = html_mod.unescape(text).replace("\u3000", "　").strip()
         if text:
-            paras.append(text)
+            paras.append({"text": text, "heading": is_heading})
     return title, paras
 
 
@@ -584,23 +586,26 @@ def crawl_text(dl, date_arg, nodes):
     return result
 
 
-def build_text_content(date_disp, data, show_edition=True):
+def build_text_content(date_disp, data, show_edition=True, markdown=False):
     lines = []
-    lines.append("人民日报  %s" % date_disp)
-    lines.append("=" * 46)
+    if markdown:
+        lines.extend(["# 人民日报 %s" % date_disp, ""])
+    else:
+        lines.extend(["人民日报  %s" % date_disp, "=" * 46])
     for n, ed_name, arts in data:
         if not arts:
             continue
         if show_edition:
             lines.append("")
-            lines.append("【%s】" % ed_name)
-            lines.append("-" * 46)
+            lines.append("## %s" % ed_name if markdown else "【%s】" % ed_name)
+            if not markdown:
+                lines.append("-" * 46)
         for title, paras in arts:
-            lines.append("")
-            lines.append(title)
-            lines.append("")
-            for p in paras:
-                lines.append(p)
+            lines.extend(["", "# %s" % title if markdown else title, ""])
+            for para in paras:
+                text = para["text"] if isinstance(para, dict) else para
+                is_heading = para.get("heading", False) if isinstance(para, dict) else False
+                lines.append(("## " if is_heading else "") + text if markdown else text)
     return lines
 
 
@@ -608,6 +613,10 @@ def write_txt(lines, path):
     with open(path, "w", encoding="utf-8") as f:
         f.write("\n".join(lines))
     return len(lines)
+
+
+def write_markdown(lines, path):
+    return write_txt(lines, path)
 
 
 def write_doc(lines, path):
@@ -678,6 +687,8 @@ def write_text_file(lines, path, fmt):
         write_doc(lines, path)
     elif fmt == "DOCX":
         write_docx(lines, path)
+    elif fmt == "MD":
+        write_markdown(lines, path)
     else:
         write_txt(lines, path)
     return os.path.getsize(path)
@@ -690,8 +701,9 @@ def run_single_day_text(dl, date_arg, date_disp, nodes, out_root):
     if not data:
         print("[错误] 未抓到任何文章")
         return None
-    lines = build_text_content(date_disp, data, bool(cfg.get("text_include_edition", True)))
     fmt = str(cfg.get("text_output_format", "TXT")).upper()
+    lines = build_text_content(date_disp, data, bool(cfg.get("text_include_edition", True)),
+                              markdown=(fmt == "MD"))
     fname_tpl = str(cfg.get("text_filename", "人民日报-{date}-文字版"))
     out_path = os.path.join(out_root, fname_tpl.replace("{date}", date_disp) + "." + fmt.lower())
     try:
@@ -798,7 +810,8 @@ def batch_main(cfg, expr, fmt, merge_mode):
             data = crawl_text(dl, d, nodes)
             if data:
                 lines = build_text_content(date_disp, data,
-                                           bool(cfg.get("text_include_edition", True)))
+                                           bool(cfg.get("text_include_edition", True)),
+                                           markdown=(text_ext == "md"))
                 if merge_mode == "all":
                     all_text_lines.extend(lines)
                 else:
@@ -1151,8 +1164,8 @@ def interactive_config(cfg):
             save_config(cfg)
             print("[配置] 自动打开文件夹已切换为 %s" % ("是" if cfg["open_folder_after"] else "否"))
         elif choice == "7":
-            v = _input("文字输出格式 [TXT/DOC/DOCX]（当前 %s）: " % cfg.get("text_output_format", "TXT"))
-            if v and v.strip().upper() in ("TXT", "DOC", "DOCX"):
+            v = _input("文字输出格式 [TXT/DOC/DOCX/MD]（当前 %s）: " % cfg.get("text_output_format", "TXT"))
+            if v and v.strip().upper() in ("TXT", "DOC", "DOCX", "MD"):
                 cfg["text_output_format"] = v.strip().upper()
                 save_config(cfg)
                 print("[配置] 已更新文字输出格式为 %s" % cfg["text_output_format"])
