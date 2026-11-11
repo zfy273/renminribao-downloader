@@ -30,7 +30,5 @@
   "log_file": "rmrb_download.log",
   "log_level": "normal",
   "beep_on_done": false,
-  "msg_on_done": false,
-  "auto_run": false,
-  "auto_run_time": "08:00"
+  "msg_on_done": false
 }

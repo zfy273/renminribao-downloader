@@ -15,7 +15,7 @@
   批量:
   python rmrb_downloader.py --batch "20260901-20260903,20260905" [格式] [--merge-mode each|all]
     日期范围: 逗号分隔；支持 "起始-结束" 与 "日期-"(到今日)
-  python rmrb_downloader.py --init | --task-install | --task-remove
+  python rmrb_downloader.py --init
 """
 import contextlib
 import datetime
@@ -82,9 +82,6 @@ DEFAULT_CONFIG = {
     "log_level": "normal",           # quiet / normal / debug
     "beep_on_done": False,
     "msg_on_done": False,
-    # 调度
-    "auto_run": False,
-    "auto_run_time": "08:00",
 }
 
 def _app_dir():
@@ -933,33 +930,6 @@ def notify(cfg, title, msg):
             pass
 
 
-def install_task(cfg):
-    t = str(cfg.get("auto_run_time", "08:00"))
-    hh, mm = t.split(":")[:2]
-    default_date = str(cfg.get("default_date", ""))
-    if getattr(sys, "frozen", False):
-        exe = os.path.abspath(sys.executable)
-        task_cmd = ('schtasks /create /tn "RMRB_Download" /tr "\\"%s\\" %s pdf" '
-                    '/sc daily /st %s:%s /f') % (exe, default_date, hh, mm)
-    else:
-        script = os.path.abspath(__file__)
-        py = sys.executable
-        task_cmd = ('schtasks /create /tn "RMRB_Download" /tr "\\"%s\\" \\"%s\\" %s pdf" '
-                    '/sc daily /st %s:%s /f') % (py, script, default_date, hh, mm)
-    r = subprocess.run(task_cmd, shell=True, capture_output=True, text=True)
-    print(r.stdout.strip())
-    print("[调度] 已注册每日 %s 的自动下载任务（任务名 RMRB_Download）" % t)
-
-
-def remove_task():
-    r = subprocess.run('schtasks /delete /tn "RMRB_Download" /f', shell=True,
-                       capture_output=True, text=True)
-    print(r.stdout.strip())
-    print("[调度] 已删除自动下载任务")
-
-
-
-
 # ------------------------- 单日下载（独立函数） -------------------------
 
 def single_day_main(cfg, date_arg="", fmt_arg=""):
@@ -1243,13 +1213,6 @@ def main():
         save_config(cfg)
         print("已生成/更新 config.json")
         return 0
-    if "--task-install" in args:
-        install_task(cfg)
-        return 0
-    if "--task-remove" in args:
-        remove_task()
-        return 0
-
     # 批量模式
     if "--batch" in args:
         i = args.index("--batch")

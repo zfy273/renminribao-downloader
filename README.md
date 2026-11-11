@@ -83,9 +83,6 @@ python rmrb_downloader.py --batch "20260801-" pdf
 # 生成/刷新默认配置
 python rmrb_downloader.py --init
 
-# 注册/删除每日自动下载计划任务
-python rmrb_downloader.py --task-install
-python rmrb_downloader.py --task-remove
 ```
 
 ---
@@ -160,13 +157,6 @@ python rmrb_downloader.py --task-remove
 | `log_level` | string | `"normal"` | 日志级别：`quiet` / `normal` / `debug` |
 | `beep_on_done` | bool | `false` | 完成时蜂鸣提示 |
 | `msg_on_done` | bool | `false` | 完成时弹出 Windows 消息框 |
-
-### 调度
-
-| 键 | 类型 | 默认值 | 说明 |
-|---|---|---|---|
-| `auto_run` | bool | `false` | 是否启用每日自动下载（需先 `--task-install` 注册计划任务） |
-| `auto_run_time` | string | `"08:00"` | 每日自动运行时间 `HH:MM` |
 
 > 配置非法值（如负数限速、越界并发、非法颜色码）会在启动时自动回退为默认值并打印警告，不会导致崩溃。
 
