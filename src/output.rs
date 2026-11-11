@@ -18,9 +18,16 @@ pub fn text_lines(date: &str, editions: &[Edition], include_edition: bool, markd
 }
 
 fn append_article(lines: &mut Vec<String>, article: &Article, markdown: bool) {
-    lines.extend([String::new(), if markdown { format!("# {}", article.title) } else { article.title.clone() }, String::new()]);
+    lines.extend([String::new(), if markdown { format!("### {}", article.title) } else { article.title.clone() }, String::new()]);
     for paragraph in &article.paragraphs {
-        lines.push(if markdown && paragraph.heading { format!("## {}", paragraph.text) } else { paragraph.text.clone() });
+        if markdown {
+            lines.extend([
+                if paragraph.heading { format!("#### {}", paragraph.text) } else { paragraph.text.clone() },
+                String::new(),
+            ]);
+        } else {
+            lines.push(paragraph.text.clone());
+        }
     }
 }
 
@@ -45,7 +52,9 @@ mod tests {
         }] }];
         let lines = text_lines("2026-09-03", &editions, true, true);
         assert!(lines.contains(&"## 要闻".to_string()));
-        assert!(lines.contains(&"## 导语".to_string()));
-        assert!(lines.contains(&"# 新闻".to_string()));
+        assert!(lines.contains(&"#### 导语".to_string()));
+        assert!(lines.contains(&"### 新闻".to_string()));
+        assert!(lines.windows(2).any(|pair| pair == ["#### 导语", ""]));
+        assert!(lines.windows(2).any(|pair| pair == ["正文", ""]));
     }
 }
