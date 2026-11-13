@@ -42,7 +42,8 @@ inherits = "release"
 
 [package.metadata.release]
 allow-branch = ["main"]
-consolidate-commits = true
+consolidate-commits = false
+pre-release-commit-message = "chore: bump version to {{version}}"
 tag-name = "v{{version}}"
 tag-message = "Release {{version}}"
 publish = false
