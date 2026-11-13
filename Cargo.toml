@@ -1,6 +1,6 @@
 [package]
 name = "renminribao-downloader"
-version = "3.1.2"
+version = "3.1.3"
 edition = "2024"
 description = "人民日报电子版下载器"
 license = "MIT"
