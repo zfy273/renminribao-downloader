@@ -1,0 +1,50 @@
+[package]
+name = "renminribao-downloader"
+version = "3.2.0"
+edition = "2024"
+description = "人民日报电子版下载器"
+license = "MIT"
+repository = "https://github.com/LeonardoTan19/renminribao-downloader"
+
+[[bin]]
+name = "rmrb-downloader"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1.0"
+chrono = { version = "0.4", features = ["serde"] }
+clap = { version = "4.5", features = ["derive"] }
+console = "0.15"
+dialoguer = "0.11"
+indicatif = "0.18"
+lopdf = "0.39"
+opener = { version = "0.7", features = ["reveal"] }
+rayon = "1.10"
+regex = "1.11"
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls"] }
+scraper = "0.22"
+serde = { version = "1.0", features = ["derive"] }
+toml = "0.8"
+figment = { version = "0.10", features = ["toml"] }
+tracing = "0.1"
+tracing-appender = "0.2"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tempfile = "3.15"
+
+[profile.release]
+lto = true
+strip = true
+codegen-units = 1
+
+# The profile that 'dist' will build with
+[profile.dist]
+inherits = "release"
+
+[package.metadata.release]
+allow-branch = ["main"]
+consolidate-commits = false
+pre-release-commit-message = "chore: bump version to {{version}}"
+tag-name = "v{{version}}"
+tag-message = "Release {{version}}"
+publish = false
+push = true

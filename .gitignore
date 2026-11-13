@@ -1,20 +1,15 @@
-﻿# 下载产物
+# Rust build output
+/target/
+
+# 下载产物
+/output/
 人民日报-*.pdf
 人民日报-*.txt
-人民日报-*.doc
-人民日报-*.docx
-pdfs_*/
 *.log
 
-# Python
-__pycache__/
-*.pyc
-*.pyo
-
-# PyInstaller 构建产物
+# 构建产物
 build/
 dist/
-*.spec
 人民日报下载器.exe
 
 # 系统
