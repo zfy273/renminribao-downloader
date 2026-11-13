@@ -23,7 +23,7 @@ fn config_command_displays_toml() {
         .unwrap();
     assert!(output.status.success());
     let stdout = String::from_utf8(output.stdout).unwrap();
-    assert!(stdout.contains("配置文件:"));
+    assert!(stdout.contains("配置文件"));
     assert!(stdout.contains("[network]"));
 }
 

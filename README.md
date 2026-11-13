@@ -12,7 +12,8 @@
 - 抓取文章正文并输出 TXT 或 MD，所有产物统一保存到 `output/`
 - 支持单日和批量日期范围下载
 - 支持按日期分别合并，或合并为跨日期文件
-- 通过 `config.toml` 配置网络、代理、限速、输出和日志
+- 通过 `config.toml` 配置网络、代理、限速、并发、输出和日志
+- 交互模式提供方向键菜单，完成后可定位到生成的文件
 - 支持网络重试、版面筛选和完成后打开输出目录
 
 ## 环境要求
@@ -37,24 +38,25 @@ cargo run -- download
 
 # 长选项写法
 cargo run -- download --on 20260903 --output pdf
-cargo run -- batch --dates "20260901-20260903" --output both --merge-mode all
+cargo run -- download --on 20260903 --output pdf --output text --output md
+cargo run -- batch --dates "20260901-20260903" --output pdf --output md --merge-mode all
 
 # 校验日期、查看当前配置和输出文件
 cargo run -- check-date 20260903
 cargo run -- config
 cargo run -- list
 
-# 下载指定日期的 PDF、文字版或两者
+# 下载指定日期，格式可同时指定多种
 cargo run -- download 20260903 pdf
 cargo run -- download 20260903 text
 cargo run -- download 20260903 md
-cargo run -- download 20260903 both
+cargo run -- download 20260903 pdf text md
 
 # 批量下载，每个日期单独合并
 cargo run -- batch --dates "20260901-20260903" pdf --merge-mode each
 
 # 批量下载并合并为一个跨日期文件
-cargo run -- batch --dates "20260901-20260903,20260905" both --merge-mode all
+cargo run -- batch --dates "20260901-20260903,20260905" pdf md --merge-mode all
 ```
 
 构建发布版本：
@@ -78,10 +80,10 @@ cargo build --release
 | 配置项 | 说明 |
 |---|---|
 | `[network]` | 网络地址、超时、重试、限速和代理 |
-| `[interface]` | 控制台颜色、窗口标题和进度显示 |
-| `[task]` | 默认日期、下载格式、版面筛选和批量任务 |
-| `[output]` | 输出路径、PDF 合并和文字版格式 |
-| `[logging]` | 日志级别、日志文件和完成提示 |
+| `[interface]` | 是否显示下载进度 |
+| `[task]` | 默认日期、下载格式、版面筛选、休刊处理和批量合并方式 |
+| `[output]` | 输出路径、PDF 合并和文字版文件名 |
+| `[logging]` | 日志级别（`error` / `warn` / `info` / `debug` / `trace`）、日志文件和完成提示音 |
 
 例如，网络超时配置为 `network.timeout`，默认格式配置为
 `task.default_format`，输出根目录配置为 `output.download_path`。

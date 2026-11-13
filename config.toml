@@ -1,4 +1,3 @@
-# 网络请求
 [network]
 base_url = "http://paper.people.com.cn/rmrb/pc"
 rate_limit_kbps = 0.0
@@ -10,23 +9,16 @@ concurrent = 1
 proxy = ""
 user_agent = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36"
 
-# 界面显示
 [interface]
-color_foreground = "A"
-color_background = "0"
-window_title = "人民日报电子版下载器"
 show_progress = true
 
-# 下载任务
 [task]
 default_date = ""
 default_format = "pdf"
 edition_filter = []
 holiday_skip = false
-batch_enable = false
 batch_merge_mode = "each"
 
-# 文件输出
 [output]
 download_path = "output"
 download_dir = "{date}"
@@ -34,13 +26,10 @@ merged_filename = "人民日报-{date}-完整版"
 auto_merge = true
 keep_singles = false
 open_folder_after = true
-text_output_format = "TXT"
 text_filename = "人民日报-{date}-文字版"
 text_include_edition = true
 
-# 日志与完成提示
 [logging]
 log_file = "rmrb_download.log"
-log_level = "normal"
+log_level = "info"
 beep_on_done = false
-msg_on_done = false

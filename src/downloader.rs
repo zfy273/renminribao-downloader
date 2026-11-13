@@ -4,11 +4,13 @@ use crate::{
 };
 use anyhow::{Context, Result, anyhow};
 use indicatif::{ProgressBar, ProgressStyle};
-use reqwest::blocking::Client;
+use rayon::prelude::*;
+use reqwest::blocking::{Client, Response};
 use std::{
     fs::{self, File},
-    io::Write,
-    path::Path,
+    io::{Read, Write},
+    path::{Path, PathBuf},
+    sync::Mutex,
     thread,
     time::{Duration, Instant},
 };
@@ -16,6 +18,8 @@ use std::{
 pub struct Downloader {
     cfg: Config,
     client: Client,
+    pace: Mutex<Instant>,
+    bandwidth: Mutex<Instant>,
 }
 
 impl Downloader {
@@ -29,6 +33,8 @@ impl Downloader {
         Ok(Self {
             cfg: cfg.clone(),
             client: builder.build()?,
+            pace: Mutex::new(Instant::now()),
+            bandwidth: Mutex::new(Instant::now()),
         })
     }
 
@@ -39,25 +45,102 @@ impl Downloader {
     fn fetch_with_timeout(&self, url: &str, timeout: Duration) -> Result<Vec<u8>> {
         let mut last = None;
         for attempt in 0..=self.cfg.retry {
-            match self
-                .client
-                .get(url)
-                .header(reqwest::header::REFERER, &self.cfg.base_url)
-                .timeout(timeout)
-                .send()
-                .and_then(|r| r.error_for_status())
-                .and_then(|r| r.bytes())
-            {
-                Ok(bytes) => return Ok(bytes.to_vec()),
+            self.wait_turn();
+            match self.read_limited(url, timeout) {
+                Ok(bytes) => return Ok(bytes),
                 Err(error) => {
+                    tracing::warn!(attempt, retry = self.cfg.retry, %url, "请求失败: {error:#}");
                     last = Some(error);
                     if attempt < self.cfg.retry {
-                        thread::sleep(Duration::from_secs_f64(self.cfg.retry_interval));
+                        thread::sleep(self.retry_delay());
                     }
                 }
             }
         }
         Err(anyhow!("网络请求失败: {}", last.unwrap()))
+    }
+
+    fn read_limited(&self, url: &str, timeout: Duration) -> Result<Vec<u8>> {
+        let response = self
+            .client
+            .get(url)
+            .header(reqwest::header::REFERER, &self.cfg.base_url)
+            .timeout(timeout)
+            .send()
+            .and_then(Response::error_for_status)
+            .with_context(|| format!("请求失败: {url}"))?;
+        let mut bytes = Vec::new();
+        let mut reader = response;
+        let mut buffer = [0_u8; 16 * 1024];
+        loop {
+            let read = reader.read(&mut buffer).context("读取响应失败")?;
+            if read == 0 {
+                return Ok(bytes);
+            }
+            self.limit_bandwidth(read);
+            bytes.extend_from_slice(&buffer[..read]);
+        }
+    }
+
+    fn retry_delay(&self) -> Duration {
+        Duration::from_secs_f64(self.cfg.retry_interval.clamp(0.0, 300.0))
+    }
+
+    fn wait_turn(&self) {
+        let delay = Duration::from_secs_f64(self.cfg.request_interval.clamp(0.0, 300.0));
+        if delay.is_zero() {
+            return;
+        }
+        let mut next = self.pace.lock().expect("请求间隔锁已损坏");
+        let now = Instant::now();
+        let wait = next.saturating_duration_since(now);
+        *next = now.max(*next) + delay;
+        drop(next);
+        thread::sleep(wait);
+    }
+
+    fn limit_bandwidth(&self, bytes: usize) {
+        if self.cfg.rate_limit_kbps <= 0.0 || bytes == 0 {
+            return;
+        }
+        let seconds = bytes as f64 / (self.cfg.rate_limit_kbps * 1024.0);
+        let reserve = Duration::from_secs_f64(seconds.min(300.0));
+        let mut available = self.bandwidth.lock().expect("限速锁已损坏");
+        let start = Instant::now().max(*available);
+        *available = start + reserve;
+        drop(available);
+        thread::sleep(start.saturating_duration_since(Instant::now()));
+    }
+
+    fn progress(&self, total: u64, message: &str) -> Option<ProgressBar> {
+        if !self.cfg.show_progress {
+            return None;
+        }
+        let bar = ProgressBar::new(total);
+        if let Ok(style) = ProgressStyle::with_template(
+            "  {spinner:.cyan} {msg}  {bar:28.cyan/blue}  {pos}/{len}",
+        ) {
+            bar.set_style(
+                style
+                    .progress_chars("━╸ ")
+                    .tick_chars("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"),
+            );
+        }
+        bar.set_message(message.to_string());
+        Some(bar)
+    }
+
+    fn run_parallel<T, F>(&self, items: &[String], work: F) -> Vec<T>
+    where
+        T: Send,
+        F: Fn(&Self, &str) -> T + Sync,
+    {
+        let workers = self.cfg.concurrent.clamp(1, 16);
+        let pool = rayon::ThreadPoolBuilder::new()
+            .num_threads(workers)
+            .build()
+            .expect("无法创建下载线程池");
+        pool.install(|| items.par_iter().map(|item| work(self, item)).collect())
     }
 
     pub fn editions(&self, date: &str) -> Result<(Vec<String>, bool)> {
@@ -74,7 +157,7 @@ impl Downloader {
                 find_editions(&String::from_utf8_lossy(&bytes))
             }
             Err(error) => {
-                eprintln!("  [网络] 读取版面列表失败：{error}");
+                tracing::warn!("读取版面列表失败：{error}");
                 Vec::new()
             }
         };
@@ -119,91 +202,98 @@ impl Downloader {
         date: &str,
         editions: &[String],
         root: &Path,
-    ) -> Result<(Vec<std::path::PathBuf>, Vec<String>)> {
+    ) -> Result<(Vec<PathBuf>, Vec<String>)> {
         let dir = root.join(self.cfg.download_dir.replace("{date}", date));
         fs::create_dir_all(&dir)?;
-        let progress = ProgressBar::new(editions.len() as u64);
-        progress.set_style(ProgressStyle::with_template(
-            "{spinner:.green} [{bar:40.cyan/blue}] {pos}/{len} {msg}",
-        )?);
+        let progress = self.progress(editions.len() as u64, "下载 PDF");
+        let outcomes = self.run_parallel(editions, |downloader, edition| {
+            let result = downloader.download_one_pdf(date, edition, &dir);
+            if let Some(bar) = &progress {
+                bar.inc(1);
+            }
+            result
+        });
+        if let Some(bar) = progress {
+            bar.finish_and_clear();
+        }
         let mut files = Vec::new();
         let mut failed = Vec::new();
-        for edition in editions {
-            progress.set_message(format!("第{edition}版"));
-            let outcome = (|| -> Result<std::path::PathBuf> {
-                let html = String::from_utf8_lossy(&self.fetch(&self.node_url(date, edition))?)
-                    .into_owned();
-                let re = regex::Regex::new(r"attachement/\d{6}/\d{2}/[0-9a-f-]+\.pdf")?;
-                let relative = re.find(&html).context("未找到 PDF 链接")?.as_str();
-                let bytes = self.fetch_with_timeout(
-                    &format!("{}/{}", self.cfg.base_url, relative),
-                    Duration::from_secs(self.cfg.timeout.max(120)),
-                )?;
-                let path = dir.join(format!("rmrb_{date}_{edition}.pdf"));
-                let mut file = File::create(&path)?;
-                let start = Instant::now();
-                file.write_all(&bytes)?;
-                if self.cfg.rate_limit_kbps > 0.0 {
-                    let expected = bytes.len() as f64 / (self.cfg.rate_limit_kbps * 1024.0);
-                    let remaining = expected - start.elapsed().as_secs_f64();
-                    if remaining > 0.0 {
-                        thread::sleep(Duration::from_secs_f64(remaining));
-                    }
-                }
-                Ok(path)
-            })();
+        for (edition, outcome) in editions.iter().zip(outcomes) {
             match outcome {
                 Ok(path) => files.push(path),
                 Err(error) => {
-                    eprintln!("  第{edition}版下载失败: {error:#}");
+                    tracing::error!("第{edition}版下载失败: {error:#}");
                     failed.push(edition.clone());
                 }
             }
-            progress.inc(1);
-            if self.cfg.concurrent == 1 && self.cfg.request_interval > 0.0 {
-                thread::sleep(Duration::from_secs_f64(self.cfg.request_interval));
-            }
         }
-        progress.finish_and_clear();
         Ok((files, failed))
     }
 
+    fn download_one_pdf(&self, date: &str, edition: &str, dir: &Path) -> Result<PathBuf> {
+        let html = String::from_utf8_lossy(&self.fetch(&self.node_url(date, edition))?).into_owned();
+        let re = regex::Regex::new(r"attachement/\d{6}/\d{2}/[0-9a-f-]+\.pdf")?;
+        let relative = re.find(&html).context("未找到 PDF 链接")?.as_str();
+        let bytes = self.fetch_with_timeout(
+            &format!("{}/{}", self.cfg.base_url, relative),
+            Duration::from_secs(self.cfg.timeout.max(120)),
+        )?;
+        let path = dir.join(format!("rmrb_{date}_{edition}.pdf"));
+        File::create(&path)?.write_all(&bytes)?;
+        Ok(path)
+    }
+
     pub fn crawl_text(&self, date: &str, editions: &[String]) -> Vec<Edition> {
-        let mut result = Vec::new();
-        for number in editions {
-            let html = match self.fetch(&self.node_url(date, number)) {
-                Ok(bytes) => String::from_utf8_lossy(&bytes).into_owned(),
-                Err(error) => {
-                    eprintln!("  第{number}版抓取失败: {error}");
-                    continue;
-                }
-            };
-            let name = regex::Regex::new(&format!(r"第{}版[：:]\s*([^<]+)", regex::escape(number)))
-                .ok()
-                .and_then(|re| re.captures(&html).map(|m| m[1].trim().to_string()))
-                .unwrap_or_else(|| format!("第{number}版"));
-            let mut articles = Vec::new();
-            for id in article_ids(&html) {
-                let url = format!(
-                    "{}/content/{}/{}/content_{}.html",
-                    self.cfg.base_url,
-                    &date[..6],
-                    &date[6..],
-                    id
-                );
-                if let Ok(bytes) = self.fetch(&url) {
-                    if let Some(article) = parse_article(&String::from_utf8_lossy(&bytes)) {
-                        articles.push(article);
-                    }
-                }
-                if self.cfg.request_interval > 0.0 {
-                    thread::sleep(Duration::from_secs_f64(self.cfg.request_interval));
-                }
+        let progress = self.progress(editions.len() as u64, "抓取正文");
+        let result = self.run_parallel(editions, |downloader, number| {
+            let edition = downloader.crawl_edition(date, number);
+            if let Some(bar) = &progress {
+                bar.inc(1);
             }
-            println!("  第{number}版({name}): 抓取 {} 篇文章", articles.len());
-            result.push(Edition { name, articles });
+            tracing::info!(
+                "第{number}版({}): 抓取 {} 篇文章",
+                edition.name,
+                edition.articles.len()
+            );
+            edition
+        });
+        if let Some(bar) = progress {
+            bar.finish_and_clear();
         }
         result
+    }
+
+    fn crawl_edition(&self, date: &str, number: &str) -> Edition {
+        let html = match self.fetch(&self.node_url(date, number)) {
+            Ok(bytes) => String::from_utf8_lossy(&bytes).into_owned(),
+            Err(error) => {
+                tracing::error!("第{number}版抓取失败: {error}");
+                return Edition {
+                    name: format!("第{number}版"),
+                    articles: Vec::new(),
+                };
+            }
+        };
+        let name = regex::Regex::new(&format!(r"第{}版[：:]\s*([^<]+)", regex::escape(number)))
+            .ok()
+            .and_then(|re| re.captures(&html).map(|m| m[1].trim().to_string()))
+            .unwrap_or_else(|| format!("第{number}版"));
+        let mut articles = Vec::new();
+        for id in article_ids(&html) {
+            let url = format!(
+                "{}/content/{}/{}/content_{}.html",
+                self.cfg.base_url,
+                &date[..6],
+                &date[6..],
+                id
+            );
+            if let Ok(bytes) = self.fetch(&url) {
+                if let Some(article) = parse_article(&String::from_utf8_lossy(&bytes)) {
+                    articles.push(article);
+                }
+            }
+        }
+        Edition { name, articles }
     }
 }
 
