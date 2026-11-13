@@ -278,21 +278,26 @@ impl Downloader {
             .ok()
             .and_then(|re| re.captures(&html).map(|m| m[1].trim().to_string()))
             .unwrap_or_else(|| format!("第{number}版"));
-        let mut articles = Vec::new();
-        for id in article_ids(&html) {
-            let url = format!(
-                "{}/content/{}/{}/content_{}.html",
-                self.cfg.base_url,
-                &date[..6],
-                &date[6..],
-                id
-            );
-            if let Ok(bytes) = self.fetch(&url) {
-                if let Some(article) = parse_article(&String::from_utf8_lossy(&bytes)) {
-                    articles.push(article);
-                }
-            }
-        }
+        let ids = article_ids(&html);
+        let articles = self
+            .run_parallel(&ids, |downloader, id| {
+                let url = format!(
+                    "{}/content/{}/{}/content_{}.html",
+                    downloader.cfg.base_url,
+                    &date[..6],
+                    &date[6..],
+                    id
+                );
+                downloader
+                    .fetch(&url)
+                    .ok()
+                    .as_deref()
+                    .map(String::from_utf8_lossy)
+                    .and_then(|text| parse_article(&text))
+            })
+            .into_iter()
+            .flatten()
+            .collect();
         Edition { name, articles }
     }
 }
