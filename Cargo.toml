@@ -4,6 +4,7 @@ version = "3.0.0"
 edition = "2024"
 description = "人民日报电子版下载器"
 license = "MIT"
+repository = "https://github.com/LeonardoTan19/renminribao-downloader"
 
 [[bin]]
 name = "rmrb-downloader"
@@ -29,3 +30,20 @@ tracing = "0.1"
 tracing-appender = "0.2"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tempfile = "3.15"
+
+[profile.release]
+lto = true
+strip = true
+codegen-units = 1
+
+# The profile that 'dist' will build with
+[profile.dist]
+inherits = "release"
+
+[package.metadata.release]
+allow-branch = ["main"]
+consolidate-commits = true
+tag-name = "v{{version}}"
+tag-message = "Release {{version}}"
+publish = false
+push = true
