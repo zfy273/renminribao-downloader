@@ -3,8 +3,15 @@
 人民日报-*.txt
 人民日报-*.doc
 人民日报-*.docx
+人民日报-*.md
 pdfs_*/
+out/
+output/
+*.part
+
+# 运行日志
 *.log
+*.bad
 
 # Python
 __pycache__/

@@ -3,23 +3,32 @@
 > [中文](../README.md) | English | [日本語](README_JA.md) | [한국어](README_KO.md) | [Français](README_FR.md) | [Deutsch](README_DE.md) | [Italiano](README_IT.md) | [हिन्दी](README_HI.md) | [ไทย](README_TH.md) | [العربية](README_AR.md) | [Русский](README_RU.md) | [Español](README_ES.md)
 
 [![Python](https://img.shields.io/badge/Python-3.8%2B-blue)](https://www.python.org/)
-[![Platform](https://img.shields.io/badge/Platform-Windows-lightgrey)]()
+[![Platform](https://img.shields.io/badge/Platform-Windows-0078D4)]()
+[![Dependencies](https://img.shields.io/badge/Dependencies-none-brightgreen)]()
 [![License](https://img.shields.io/badge/License-MIT-green)]()
 
-A pure-Python tool for automatically downloading and merging the electronic edition of **People's Daily (人民日报)**. Supports PDF page download, article text extraction (TXT/DOC/DOCX), batch date downloading, and full configuration — no browser or driver required.
+A pure-Python tool that downloads the electronic edition of **People's Daily (人民日报)**: fetch and
+merge every page PDF of a day, extract article text, and download date ranges in batch — available as a
+**native Windows GUI** and as a command-line tool. **No third-party dependencies**: PDF merging is done
+by a built-in standard-library implementation, so nothing needs to be `pip install`ed.
+
+![GUI](screenshot-single.png)
 
 ---
 
 ## Features
 
-- **PDF mode**: downloads all page PDFs of the day and merges them into one complete file
-- **Text mode**: extracts article body text from all pages, outputs as `TXT` / `DOC` / `DOCX` (zero extra dependencies)
-- **both mode**: generates PDF and text versions simultaneously
-- **Batch download**: supports date-range expressions; either merge per date or merge everything into one cross-date file
-- **Fully configurable**: 30+ options (network, UI, output, rate limit, proxy, scheduling) via `config.json`
-- **Auto dependency install**: automatically installs `pypdf` on first run (official PyPI → Tsinghua mirror fallback)
-- **Real-time progress**: download progress bar, speed display, auto-open file location when done
-- **Robust error handling**: network retries, file-in-use auto-retry, future/invalid date and expression interception, friendly Chinese error messages
+| Feature | Details |
+|---|---|
+| **Native GUI** | tkinter/ttk with the Windows `vista` theme; tabs for single day / batch / settings |
+| **PDF mode** | Download all page PDFs of a day and merge them in page order |
+| **Text mode** | Extract article bodies, output `TXT` / `MD` / `DOC` / `DOCX` |
+| **Batch mode** | Date-range expressions; one file per day, or everything merged into one file |
+| **Edition filter** | Only download selected page numbers (e.g. pages 1 and 2) |
+| **Resume** | `skip_existing` skips already-downloaded pages, so an interrupted run can be restarted |
+| **Fully configurable** | Network, proxy, rate limit, concurrency, output, logging, scheduling in `config.json` |
+| **Zero dependencies** | Standard library only; `pypdf` is an optional fallback for exotic PDFs |
+| **Robust** | Retries, Chinese-friendly error messages, log rotation, atomic config writes, delete guards |
 
 ---
 
@@ -27,248 +36,276 @@ A pure-Python tool for automatically downloading and merging the electronic edit
 
 | Item | Requirement |
 |---|---|
-| OS | Windows 10 / 11 (the `.bat` launcher is Windows-specific; the core script is cross-platform) |
-| Python | **3.8+** (3.10+ recommended; verified on 3.13 / 3.14) |
-| Network | Must be able to reach `paper.people.com.cn` |
-| Browser | **None** — no Chrome / Edge / WebDriver needed |
+| OS | Windows 10 / 11 (the GUI uses the bundled Tk; the engine itself is cross-platform) |
+| Python | **3.8+** with `tkinter` (included in the official python.org installer) |
+| Third-party | **None** (`pypdf` optional, only for PDFs the built-in engine rejects) |
+| Network | Access to `paper.people.com.cn` |
+| Browser | **Not needed** — no Chrome/Edge, no webdriver |
 
-### Dependencies
-
-| Library | Purpose | Installation |
-|---|---|---|
-| `pypdf` | PDF merging | **Auto-installed on first run**; or manually `pip install pypdf` |
-| (none) | Text output TXT/DOC/DOCX | Pure standard library (`zipfile` hand-writes OOXML), zero dependencies |
-| `PyMuPDF` (optional) | Only for rendering PDF preview screenshots in tests | `pip install pymupdf`, not needed for normal use |
+> The CLI works on Linux and macOS too; the GUI is Windows-focused.
 
 ---
 
-## Quick Start
+## Quick start
 
-### Option 1: Double-click the BAT (recommended for Windows users)
+### 1. Double-click launcher (recommended)
 
-1. Make sure Python is installed and on PATH (or the `py` launcher is available)
-2. Double-click `下载人民日报.bat`
-3. Enter a date (Enter = today), choose a format (T / PDF / B)
-4. Wait for download and merge; the file location opens automatically when done
+1. Keep `下载人民日报.bat`, `config.json` and the `*.py` files in the same folder
+2. Double-click **`下载人民日报.bat`** — the GUI opens
+3. Pick a date, tick what you want, click **开始下载**
 
-### Option 2: Command line
+For the classic console menu run `下载人民日报.bat --cli`.
+
+### 2. Run directly
 
 ```bash
-# Single-day PDF (today by default)
+python rmrb_ui.py           # GUI
+python rmrb_downloader.py   # interactive console menu
+```
+
+### 3. One-shot CLI
+
+```bash
+# Today, all pages, merged into one PDF
 python rmrb_downloader.py
 
-# Specific date + format
+# Specific date and format
 python rmrb_downloader.py 20260903 pdf
 python rmrb_downloader.py 20260903 text
 python rmrb_downloader.py 20260903 both
 
-# Batch (date range, merge per date)
+# Markdown output
+python rmrb_downloader.py 20260903 text --text-format MD
+
+# Batch: one merged file per day
 python rmrb_downloader.py --batch "20260901-20260903" pdf --merge-mode each
 
-# Batch (merge everything into one cross-date file)
+# Batch: merge everything into one cross-date file
 python rmrb_downloader.py --batch "20260901-20260903,20260905" both --merge-mode all
 
-# From a date to today (leave the right end empty)
+# From a date up to today
 python rmrb_downloader.py --batch "20260801-" pdf
 
-# Generate / refresh default config
-python rmrb_downloader.py --init
-
-# Register / remove daily auto-download scheduled task
-python rmrb_downloader.py --task-install
-python rmrb_downloader.py --task-remove
+# Misc
+python rmrb_downloader.py --init            # create/refresh config.json
+python rmrb_downloader.py --task-install    # register a daily scheduled task
+python rmrb_downloader.py --task-remove     # remove the scheduled task
+python rmrb_downloader.py -h                # all options
 ```
 
 ---
 
-## Configuration (config.json)
+## GUI
 
-`config.json` is generated automatically on first run. All options:
+| Tab | Contents |
+|---|---|
+| **Single day** | Date (today/yesterday shortcuts), output (PDF / text + text format), edition filter, output folder |
+| **Batch** | Date range (this week/month shortcuts), merge mode, output, output folder |
+| **Settings** | Timeout, retries, PDF concurrency, text concurrency, rate limit, proxy, keep singles, skip existing, PDF engine, log level |
 
-### Network & Fetching
+- Follows the system DPI and Windows "text size" setting (no shrinking or blur at 125%/150%)
+- Downloads run on a worker thread; the window stays responsive and **停止** cancels the job
+- Log lines are colour-coded by level; the finished file is revealed in Explorer
+- The GUI and the CLI share the very same `config.json`
 
-| Key | Type | Default | Description |
-|---|---|---|---|
-| `base_url` | string | `http://paper.people.com.cn/rmrb/pc` | Base URL of the electronic edition |
-| `rate_limit_kbps` | number | `0` | Download rate limit in KB/s; `0` = unlimited |
-| `timeout` | int | `30` | Per-request timeout in seconds |
-| `retry` | int | `3` | Retry count on failure |
-| `retry_interval` | float | `2.0` | Retry interval in seconds |
-| `request_interval` | float | `0.2` | Interval between requests (seconds), avoids rate-limiting |
-| `concurrent` | int | `1` | Concurrent download threads (1–16) |
-| `proxy` | string | `""` | HTTP/HTTPS proxy address; empty = no proxy |
-| `user_agent` | string | Chrome UA | Request User-Agent |
-
-### UI
-
-| Key | Type | Default | Description |
-|---|---|---|---|
-| `color_foreground` | string | `"A"` | cmd foreground color (hex 0–F) |
-| `color_background` | string | `"0"` | cmd background color (hex 0–F) |
-| `window_title` | string | `人民日报电子版下载器` | Console window title |
-| `show_progress` | bool | `true` | Show download progress bar |
-
-### Date & Content
-
-| Key | Type | Default | Description |
-|---|---|---|---|
-| `default_date` | string | `""` | Default date `YYYYMMDD`; empty = today |
-| `default_format` | string | `"pdf"` | Default format: `pdf` / `text` / `both` |
-| `edition_filter` | list | `[]` | **Edition whitelist**: when non-empty, only listed edition numbers are downloaded (e.g. `[1,2]` = only pages 1 and 2); empty = all editions |
-| `holiday_skip` | bool | `false` | In single-day mode, silently skip (exit 0) when no editions are found |
-
-### Batch Download
-
-| Key | Type | Default | Description |
-|---|---|---|---|
-| `batch_enable` | bool | `false` | When `true`, double-clicking the BAT shows the **batch download interface** |
-| `batch_merge_mode` | string | `"each"` | `each` = merge per date; `all` = merge all dates into one big file |
-| `download_path` | string | `""` | Download root directory; empty = script folder; relative paths resolve against the script folder, absolute paths also accepted |
-
-### Output & Merging
-
-| Key | Type | Default | Description |
-|---|---|---|---|
-| `download_dir` | string | `"pdfs_{date}"` | Single-page PDF directory template, `{date}` replaced with the date |
-| `merged_filename` | string | `"人民日报-{date}-完整版"` | Merged PDF filename template (without extension) |
-| `auto_merge` | bool | `true` | Auto-merge in single-day mode |
-| `keep_singles` | bool | `true` | Keep single-page PDF directory after merging; `false` deletes it after a successful merge |
-| `open_folder_after` | bool | `true` | Auto-open the file location when done |
-
-### Text Output
-
-| Key | Type | Default | Description |
-|---|---|---|---|
-| `text_output_format` | string | `"TXT"` | Text output format: `TXT` / `DOC` / `DOCX` |
-| `text_filename` | string | `"人民日报-{date}-文字版"` | Text filename template (without extension) |
-| `text_include_edition` | bool | `true` | Include edition title separators in the text output |
-
-### Logging & Notifications
-
-| Key | Type | Default | Description |
-|---|---|---|---|
-| `log_file` | string | `"rmrb_download.log"` | Log filename; empty = no logging |
-| `log_level` | string | `"normal"` | Log level: `quiet` / `normal` / `debug` |
-| `beep_on_done` | bool | `false` | Beep when done |
-| `msg_on_done` | bool | `false` | Pop up a Windows message box when done |
-
-### Scheduling
-
-| Key | Type | Default | Description |
-|---|---|---|---|
-| `auto_run` | bool | `false` | Enable daily auto-download (requires `--task-install` first) |
-| `auto_run_time` | string | `"08:00"` | Daily auto-run time `HH:MM` |
-
-> Invalid config values (e.g. negative rate limit, out-of-range concurrency, invalid color codes) are automatically reset to defaults with a warning at startup — no crash.
+![Batch tab](screenshot-batch.png)
 
 ---
 
-## Batch Download Details
+## Configuration (`config.json`)
 
-### Date-range expression
+Created on first run. A broken file is backed up as `config.json.bad` and defaults are used.
 
-Enter in the BAT batch interface or the `--batch` argument; comma-separated segments:
+### Network
+
+| Key | Default | Description |
+|---|---|---|
+| `base_url` | `http://paper.people.com.cn/rmrb/pc` | Base URL of the electronic edition |
+| `rate_limit_kbps` | `0` | Download rate limit in KB/s, `0` = unlimited |
+| `timeout` | `30` | Per-request timeout (seconds) |
+| `retry` | `3` | Retry count |
+| `retry_interval` | `2` | Seconds between retries |
+| `request_interval` | `0.2` | Seconds between requests (also enforced when concurrent) |
+| `concurrent` | `4` | PDF concurrency (1–16) |
+| `proxy` | `""` | HTTP/HTTPS proxy, e.g. `http://127.0.0.1:7890` |
+| `user_agent` | Chrome UA | Request User-Agent |
+
+### Interface
+
+| Key | Default | Description |
+|---|---|---|
+| `show_progress` | `true` | Show progress in the CLI |
+| `color_foreground` / `color_background` | `"A"` / `"0"` | Console colours (two hex digits) |
+| `window_title` | `人民日报电子版下载器` | Console window title |
+
+### Date and content
+
+| Key | Default | Description |
+|---|---|---|
+| `default_date` | `""` | Default date, empty = today |
+| `default_format` | `"pdf"` | `pdf` / `text` / `both` |
+| `edition_filter` | `[]` | Whitelist of page numbers, e.g. `[1,2]`; empty = all |
+| `holiday_skip` | `false` | Silently skip days without any page |
+
+### Output and merging
+
+| Key | Default | Description |
+|---|---|---|
+| `download_path` | `""` | Output root, empty = the program folder |
+| `download_dir` | `"pdfs_{date}"` | Sub-folder template for single PDFs (must be relative) |
+| `merged_filename` | `"人民日报-{date}-完整版"` | Merged file name template (no extension) |
+| `auto_merge` | `true` | Merge automatically after downloading |
+| `keep_singles` | `true` | Keep the single-page folder after merging |
+| `open_folder_after` | `true` | Reveal the output when finished |
+| `skip_existing` | `false` | Skip single PDFs that already exist |
+| `pdf_engine` | `"auto"` | `auto` / `builtin` / `pypdf` |
+
+### Text output
+
+| Key | Default | Description |
+|---|---|---|
+| `text_output_format` | `"TXT"` | `TXT` / `MD` / `DOC` / `DOCX` |
+| `text_filename` | `"人民日报-{date}-文字版"` | Text file name template |
+| `text_include_edition` | `true` | Include page headings |
+| `text_concurrent` | `4` | Article fetch concurrency (1 = sequential) |
+
+### Logging and scheduling
+
+| Key | Default | Description |
+|---|---|---|
+| `log_file` | `"rmrb_download.log"` | Log file, empty = no log |
+| `log_level` | `"normal"` | `quiet` / `normal` / `debug` |
+| `log_max_kb` | `512` | Rotate the log once it exceeds this size |
+| `beep_on_done` | `false` | Beep when finished |
+| `msg_on_done` | `false` | Show a message box when finished |
+| `auto_run` / `auto_run_time` | `false` / `"08:00"` | Used by `--task-install` |
+
+---
+
+## Batch date expressions
 
 | Expression | Meaning |
 |---|---|
-| `20260901-20260903` | 2026-09-01 to 2026-09-03 (inclusive) |
-| `20260905` | Only 2026-09-05 |
-| `20260801-` | 2026-08-01 to **today** (empty right end) |
-| `20260901-20260903,20260905` | Range + single day (auto-dedup, sorted by date) |
+| `20260901-20260903` | 2026-09-01 through 2026-09-03 (inclusive) |
+| `20260905` | A single day |
+| `20260801-` | From that date **until today** |
+| `20260901-20260903,20260905` | Multiple segments, de-duplicated and sorted |
+| `2026-09-01~2026-09-03` | Dashed dates with a `~` range also work |
 
-- Dates must be real (e.g. `20260134`, `20261301` are intercepted with an error)
-- Start date later than end date raises an error
-- Dates with no editions (holidays / unpublished) are automatically skipped and counted in the summary
-
-### Merge modes
-
-| Mode | Behavior | Example output filename |
-|---|---|---|
-| `each` | Each date downloaded and merged separately | `人民日报-2026-09-02-完整版.pdf`, `人民日报-2026-09-03-完整版.pdf` |
-| `all` | All editions across all dates merged into **one cross-date file** | `人民日报-2026-09-02-2026-09-03-完整版.pdf` |
-
-Text output supports `each` / `all` as well.
-
-### Enable the BAT batch interface
-
-Edit `config.json`, set `"batch_enable"` to `true`, then double-click the BAT to enter the batch interface (enter range → choose merge mode → choose format).
+Invalid dates (e.g. `20260134`), reversed ranges and malformed input are rejected before any download.
 
 ---
 
-## Text Output Formats
-
-| Format | Description | Dependencies |
-|---|---|---|
-| `TXT` | UTF-8 plain text with edition titles and article body | none |
-| `DOC` | HTML content saved as `.doc`, opens directly in Microsoft Word / WPS | none |
-| `DOCX` | Standard OOXML (minimal document structure hand-written with `zipfile`), opens in Word/WPS/LibreOffice | none |
-
-Switch by setting `"text_output_format": "DOCX"` etc. in `config.json`.
-
----
-
-## Common Errors & Solutions
-
-| Error message | Cause | Solution |
-|---|---|---|
-| `未来日期，人民日报尚未出版` (future date) | Entered a date after today | Check the date, or fix `default_date` |
-| `日期不存在（月份或日期越界）` (date does not exist) | e.g. `20261301`, `20260134` | Enter a real date |
-| `日期应为 8 位数字 YYYYMMDD` (date must be 8 digits) | Wrong date length | Use `YYYYMMDD`, e.g. `20260903` |
-| `未找到任何版面` (no editions found) | Date unpublished/holiday, `edition_filter` filtered everything out, or network error | Try a workday; check `edition_filter`; see the `[网络]` hint above |
-| `无法安装合并库 pypdf` (cannot install pypdf) | No network for pip | Run `pip install pypdf` manually, or configure a proxy and retry |
-| `合并失败：目标文件正被占用` (merge failed: file in use) | The same-named PDF is open in a reader / Explorer preview | Close the open file and retry, or change `merged_filename` / `download_path` |
-| `域名解析失败 / 网络连接失败` (DNS / network failure) | No network, DNS issue, or wrong proxy | Check network; check `proxy` in `config.json` |
-| `连接/读取超时` (timeout) | Slow network or slow server | Increase `timeout` (e.g. 60), retry later |
-| `服务器返回 HTTP 403/429` (rate-limited) | Too frequent requests | Increase `request_interval` (e.g. 1.0), lower `concurrent` |
-| `日期表达式错误：无效日期` (invalid batch expression) | Batch expression contains an invalid date | Use `YYYYMMDD`, comma-separated ranges |
-| `格式参数应为 text / pdf / both` (wrong format) | Invalid format argument | Use `text` / `pdf` / `both` (BAT interface uses T / PDF / B) |
-| `--merge-mode 应为 each / all` (wrong merge mode) | Invalid merge mode argument | Use `each` or `all` |
-
----
-
-## Project Structure
+## Project layout
 
 ```
-rmrb_download/
-├── rmrb_downloader.py      # Main script (full config + batch + PDF/text)
-├── 下载人民日报.bat          # Windows double-click launcher (single/batch UI)
-├── build_bat.py             # BAT generator (GBK encoding)
-├── config.json              # Config file (auto-generated on first run)
-├── create_shortcut.ps1      # Desktop shortcut generator (with ICO)
-├── 人民日报下载器.ico        # Multi-size icon (16–256)
-├── icon_src.png             # Icon source image
-├── test_errors.py           # Error-handling & boundary tests
-├── test_download.py         # Real-download full test suite
-├── rmrb_download.log        # Runtime log (auto-generated)
-└── pdfs_YYYYMMDD/           # Single-page PDF directory (kept when keep_singles=true)
+renminribao-downloader/
+├── rmrb_core.py          # engine: config / network / parsing / output / orchestration
+├── rmrb_pdf.py           # dependency-free PDF merger (classic xref tables)
+├── rmrb_downloader.py    # CLI + interactive menu
+├── rmrb_ui.py            # GUI (tkinter/ttk)
+├── tests/test_core.py    # 35 offline unit tests
+├── build_bat.py          # generates the GBK-encoded .bat launcher
+├── create_shortcut.ps1   # creates desktop shortcuts (with icon)
+├── config.json           # configuration (auto-created)
+├── 人民日报下载器.ico     # icon, 16–256 px
+├── 下载人民日报.bat       # double-click launcher
+├── icon_src.png          # icon source image
+└── docs/                 # translations and screenshots
 ```
 
 ---
 
-## Testing
+## Tests
 
 ```bash
-# Error-handling & boundary tests (no download, instant)
-python test_errors.py
-
-# Real-download full tests (uses edition_filter to keep only page 1 for speed;
-# covers single-day/batch/all formats)
-python test_download.py
+python -m unittest discover -s tests -v
 ```
 
-Coverage: future date / invalid date / invalid format / batch expression parsing / config validation / single-day PDF / TXT / DOC / DOCX / both / batch each / batch all / to-today syntax / keep_singles / filename & page-count verification.
+35 tests, **completely offline**:
+
+- PDF merging: multi-document merge, page/object counts, stream preservation, rejection of broken
+  files and of compressed cross-reference PDFs
+- Article parsing: title entity unescaping, content markers, title fallback, link ordering
+- Date expressions: ranges, open ranges, dashed dates, de-duplication, invalid input
+- Config: atomic write, corrupt-file fallback, clamping, path-traversal rejection, enum fallback
+- Delete guard: refuses to remove the output root itself or anything outside it
+- Text output: TXT / MD / DOC / DOCX (OOXML structure and XML escaping)
+
+---
+
+## Build a standalone exe
+
+```bat
+pip install pyinstaller -i https://pypi.tuna.tsinghua.edu.cn/simple
+
+pyinstaller --onefile --noconsole --name "人民日报下载器" ^
+  --icon "人民日报下载器.ico" --add-data "人民日报下载器.ico;." ^
+  --hidden-import rmrb_pdf --clean rmrb_ui.py
+```
+
+- Building `rmrb_ui.py` produces a console-less GUI build; for a CLI build use `rmrb_downloader.py`
+  and drop `--noconsole`
+- The binary lands in `dist/`; copy it next to `config.json` (config and downloads live beside the exe)
+
+---
+
+## What changed in this version
+
+Compared to v1.3.0 (single script + console menu):
+
+**Added**
+- Native Windows GUI (tkinter/ttk, no third-party UI toolkit)
+- Engine/UI split (`rmrb_core` / `rmrb_downloader` / `rmrb_ui`) sharing one code path
+- Dependency-free PDF merging (`rmrb_pdf`); `pip install pypdf` is no longer required, and pypdf is
+  still used automatically as a fallback for PDFs the built-in engine cannot handle
+- Markdown text output
+- `skip_existing` resume support
+- 35 offline unit tests
+
+**Performance (measured on a full 20-page issue, 2026-11-13)**
+
+| Scenario | v1.3.0 | Now |
+|---|---|---|
+| Download + merge 20 page PDFs (52.5 MB) | ~70 s | **16 s** |
+| Fetch text of all 20 pages (1509 lines / 354 KB) | ~100 s | **22 s** |
+| A date that does not exist (404) | 3 retries, ~6 s | **error in 0.06 s** |
+
+How:
+
+- **Connection reuse**: requests go through a keep-alive `http.client` connection (urllib
+  re-handshakes on every request); measured per-request overhead dropped from ~0.3 s to 0.2 s
+- **Concurrency 4 by default**: `concurrent` / `text_concurrent` now default to 4, still bounded
+  by the global pacer (`request_interval` keeps the request rate polite)
+- **Page HTML cache** shared by PDF and text mode (~20 fewer requests per day)
+- **No retry on 4xx**: 404/403 are permanent, so the tool fails fast instead of waiting through retries
+
+**Fixes**
+- `log_file` / `log_level` were ignored entirely (hard-coded file name, `quiet` did nothing)
+- Article titles were not HTML-unescaped (`&amp;` leaked into the text)
+- `schtasks` arguments used `\"` escaping that cmd.exe does not understand, so scheduled tasks failed
+- `config.json` was written non-atomically and could be corrupted by a crash
+- "Restore defaults" in the menu did not affect the running session
+- "File location opened" was printed regardless of configuration
+- Concurrent downloads overwrote each other's progress line
+- Forcing a GBK stdout broke Chinese output in Windows Terminal / VS Code (UTF-8)
+
+**Hardening**
+- `download_dir`, `merged_filename` and `text_filename` are validated: absolute paths, drive letters
+  and `..` are rejected
+- The single-page folder is deleted only after a boundary check — **never the output root or anything
+  outside it** (previously `download_dir: ""` plus `keep_singles: false` deleted the whole output
+  folder together with the freshly merged PDF)
 
 ---
 
 ## Disclaimer
 
-- This tool is **for personal learning and research only**; any commercial use is prohibited.
-- People's Daily is copyrighted by People's Daily Press. Downloaded content must comply with applicable laws and the website's terms of use.
-- Please keep access frequencies reasonable (`request_interval`) to avoid stressing the official site.
-- If the official site structure changes, this tool may need corresponding adjustments.
-
----
+- For personal study and research only. Commercial use is not allowed.
+- People's Daily is copyrighted by the People's Daily Press. Respect the site's terms of service.
+- Keep the request rate reasonable (`request_interval`) to avoid stressing the site.
+- If the website structure changes, this tool may need updates.
 
 ## License
 
-MIT License
+MIT

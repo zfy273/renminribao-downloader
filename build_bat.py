@@ -1,97 +1,77 @@
 # -*- coding: utf-8 -*-
-"""生成 GBK 编码的中文 BAT 启动器（v4 含批量模式）"""
+"""生成 GBK 编码的中文 BAT 启动器。
+
+默认打开图形界面（pythonw 启动，不留黑框），`下载人民日报.bat --cli`
+进入原来的命令行交互模式。改完本文件执行一次即可重新生成 BAT。
+"""
 content = r"""@echo off
 setlocal enabledelayedexpansion
 cd /d "%~dp0"
-set "PYCMD=py -3"
-%PYCMD% --version >nul 2>nul
-if errorlevel 1 set "PYCMD=python"
+
+if /i "%~1"=="--cli" goto :cli
+if /i "%~1"=="-c" goto :cli
+
+rem ---- 1) 打包好的 exe 优先 ----
+if exist "人民日报下载器.exe" (
+    start "" "人民日报下载器.exe"
+    exit /b 0
+)
+
+rem ---- 2) 找 Python ----
+set "PYCMD="
+where py >nul 2>nul && set "PYCMD=py -3"
+if not defined PYCMD (
+    where python >nul 2>nul && set "PYCMD=python"
+)
+if not defined PYCMD goto :nopython
+
+rem ---- 3) 图形界面需要 tkinter ----
+%PYCMD% -c "import tkinter" >nul 2>nul
+if errorlevel 1 (
+    echo [提示] 当前 Python 未包含 tkinter，自动改用命令行界面。
+    echo        如需图形界面，请安装 python.org 官方版 Python。
+    timeout /t 3 >nul
+    goto :cli
+)
+
+rem ---- 4) 用 pythonw 启动，避免残留控制台窗口 ----
+set "PYW="
+where pyw >nul 2>nul && set "PYW=pyw -3"
+if not defined PYW (
+    where pythonw >nul 2>nul && set "PYW=pythonw"
+)
+if defined PYW (
+    start "" %PYW% "%~dp0rmrb_ui.py"
+    exit /b 0
+)
+start "" %PYCMD% "%~dp0rmrb_ui.py"
+exit /b 0
+
+:cli
 if not exist config.json (
     %PYCMD% "rmrb_downloader.py" --init >nul 2>nul
 )
-:: 读取配置：颜色 / 标题 / 批量开关 / 合并模式
-for /f "delims=" %%i in ('%PYCMD% -c "import json,io;c=json.load(io.open('config.json',encoding='utf-8'));print(c.get('color_background','0')+c.get('color_foreground','A'))"') do set CLR=%%i
-if defined CLR color !CLR!
-for /f "delims=" %%i in ('%PYCMD% -c "import json,io;c=json.load(io.open('config.json',encoding='utf-8'));print(c.get('window_title','人民日报电子版下载器'))"') do set WT=%%i
-if defined WT title !WT!
-for /f "delims=" %%i in ('%PYCMD% -c "import json,io;c=json.load(io.open('config.json',encoding='utf-8'));print('1' if c.get('batch_enable') else '0')"') do set BATCH=%%i
-for /f "delims=" %%i in ('%PYCMD% -c "import json,io;c=json.load(io.open('config.json',encoding='utf-8'));print(c.get('batch_merge_mode','each'))"') do set DEFMODE=%%i
-
-if "!BATCH!"=="1" goto :batch_mode
-
-:single_mode
-echo ============================================================
-echo           人民日报电子版 PDF/文字 下载工具（单日模式）
-echo ============================================================
+title 人民日报电子版下载器
+%PYCMD% "rmrb_downloader.py"
+if errorlevel 130 exit /b 130
 echo.
-echo  提示: 批量下载请先在 config.json 设置 batch_enable=true
-echo.
-echo  1. 输入日期（格式 YYYYMMDD，例如 20260902），回车=今日
-echo  2. 选择格式: T=文字版  PDF=PDF版面  B=两者
-echo.
-set /p rdate=请输入日期(回车=今日):
-echo.
-set /p rfmt=请选择格式(T/PDF/B，回车=PDF):
-echo.
-if /i "!rfmt!"=="T" set FMT=text
-if /i "!rfmt!"=="B" set FMT=both
-if not defined FMT set FMT=pdf
-echo [信息] 日期=!rdate!  格式=!FMT!
-echo.
-%PYCMD% "rmrb_downloader.py" !rdate! !FMT!
-if errorlevel 1 goto :err
-echo.
-echo [完成] 下载完成！文件位置已自动打开。
-pause
-exit /b 0
-
-:batch_mode
-echo ============================================================
-echo           人民日报电子版 PDF/文字 下载工具（批量模式）
-echo ============================================================
-echo.
-echo  日期范围格式（逗号分隔多个）:
-echo    起始-结束  例: 20260901-20260903
-echo    单日      例: 20260905
-echo    日期-(留空) 表示从该日期到今天
-echo    组合示例: 20260901-20260903,20260905  或  20260801-
-echo.
-set /p rrange=请输入日期范围:
-echo.
-echo  合并模式:  1 = 每日期单独合并
-echo             2 = 全部日期合并成一个
-echo             回车 = 使用配置默认(!DEFMODE!)
-set /p rmode=请选择合并模式(1/2，回车=默认):
-echo.
-set /p rfmt=请选择格式(T/PDF/B，回车=PDF):
-echo.
-if "!rmode!"=="2" (set MODE=all) else if "!rmode!"=="1" (set MODE=each) else (set MODE=!DEFMODE!)
-if /i "!rfmt!"=="T" set FMT=text
-if /i "!rfmt!"=="B" set FMT=both
-if not defined FMT set FMT=pdf
-echo [信息] 范围=!rrange!  格式=!FMT!  合并=!MODE!
-echo.
-if "!rrange!"=="" (
-    echo [错误] 日期范围不能为空
-    pause
-    exit /b 1
-)
-%PYCMD% "rmrb_downloader.py" --batch "!rrange!" !FMT! --merge-mode !MODE!
-if errorlevel 1 goto :err
-echo.
-echo [完成] 批量下载完成！文件位置已自动打开。
-pause
-exit /b 0
-
-:err
-echo.
-echo [错误] 运行失败，具体原因请查看上方提示。
-echo        常见原因：网络不通 / 日期无报 / 日期格式错误 / 无法安装合并库。
-echo        按任意键退出。
+echo 按任意键关闭窗口...
 pause >nul
+exit /b 0
+
+:nopython
+echo ============================================================
+echo   未检测到可用的 Python
+echo ============================================================
+echo.
+echo   请任选一种方式：
+echo     1. 安装 Python 3.8+（python.org 官方版，自带 tkinter）
+echo     2. 使用打包好的 人民日报下载器.exe（无需安装 Python）
+echo.
+pause
 exit /b 1
 """
 
 with open("下载人民日报.bat", "w", encoding="gbk", newline="\r\n") as f:
     f.write(content)
-print("已生成 下载人民日报.bat (GBK 编码, v4 批量版)")
+print("已生成 下载人民日报.bat（GBK 编码，默认图形界面；--cli 进入命令行）")

@@ -2,39 +2,65 @@
 setlocal enabledelayedexpansion
 cd /d "%~dp0"
 
-set "EXE=人民日报下载器.exe"
-set "SCRIPT=rmrb_downloader.py"
+if /i "%~1"=="--cli" goto :cli
+if /i "%~1"=="-c" goto :cli
 
-if exist "%EXE%" goto :run_exe
-
-echo [信息] 未找到 %EXE%，尝试使用 Python 脚本...
-where py >nul 2>nul
-if %errorlevel%==0 (
-    set "PYCMD=py -3"
-    goto :run_py
-)
-where python >nul 2>nul
-if %errorlevel%==0 (
-    set "PYCMD=python"
-    goto :run_py
+rem ---- 1) 打包好的 exe 优先 ----
+if exist "人民日报下载器.exe" (
+    start "" "人民日报下载器.exe"
+    exit /b 0
 )
 
-echo [错误] 未找到 %EXE%，也未检测到 Python 环境。
-echo        请确保 %EXE% 与本 BAT 在同一目录，或安装 Python 3.8+。
-echo        按任意键退出。
+rem ---- 2) 找 Python ----
+set "PYCMD="
+where py >nul 2>nul && set "PYCMD=py -3"
+if not defined PYCMD (
+    where python >nul 2>nul && set "PYCMD=python"
+)
+if not defined PYCMD goto :nopython
+
+rem ---- 3) 图形界面需要 tkinter ----
+%PYCMD% -c "import tkinter" >nul 2>nul
+if errorlevel 1 (
+    echo [提示] 当前 Python 未包含 tkinter，自动改用命令行界面。
+    echo        如需图形界面，请安装 python.org 官方版 Python。
+    timeout /t 3 >nul
+    goto :cli
+)
+
+rem ---- 4) 用 pythonw 启动，避免残留控制台窗口 ----
+set "PYW="
+where pyw >nul 2>nul && set "PYW=pyw -3"
+if not defined PYW (
+    where pythonw >nul 2>nul && set "PYW=pythonw"
+)
+if defined PYW (
+    start "" %PYW% "%~dp0rmrb_ui.py"
+    exit /b 0
+)
+start "" %PYCMD% "%~dp0rmrb_ui.py"
+exit /b 0
+
+:cli
+if not exist config.json (
+    %PYCMD% "rmrb_downloader.py" --init >nul 2>nul
+)
+title 人民日报电子版下载器
+%PYCMD% "rmrb_downloader.py"
+if errorlevel 130 exit /b 130
+echo.
+echo 按任意键关闭窗口...
 pause >nul
+exit /b 0
+
+:nopython
+echo ============================================================
+echo   未检测到可用的 Python
+echo ============================================================
+echo.
+echo   请任选一种方式：
+echo     1. 安装 Python 3.8+（python.org 官方版，自带 tkinter）
+echo     2. 使用打包好的 人民日报下载器.exe（无需安装 Python）
+echo.
+pause
 exit /b 1
-
-:run_exe
-if not exist config.json (
-    "%EXE%" --init >nul 2>nul
-)
-"%EXE%"
-exit /b %errorlevel%
-
-:run_py
-if not exist config.json (
-    %PYCMD% "%SCRIPT%" --init >nul 2>nul
-)
-%PYCMD% "%SCRIPT%"
-exit /b %errorlevel%
