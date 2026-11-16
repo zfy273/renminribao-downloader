@@ -86,6 +86,9 @@ python rmrb_downloader.py --batch "20260901-20260903,20260905" both --merge-mode
 # From a date up to today
 python rmrb_downloader.py --batch "20260801-" pdf
 
+# Flat out (zero interval, 8 connections — be considerate)
+python rmrb_downloader.py 20260903 pdf --interval 0 --concurrent 8
+
 # Misc
 python rmrb_downloader.py --init            # create/refresh config.json
 python rmrb_downloader.py --task-install    # register a daily scheduled task
@@ -125,8 +128,8 @@ Created on first run. A broken file is backed up as `config.json.bad` and defaul
 | `timeout` | `30` | Per-request timeout (seconds) |
 | `retry` | `3` | Retry count |
 | `retry_interval` | `2` | Seconds between retries |
-| `request_interval` | `0.2` | Seconds between requests (also enforced when concurrent) |
-| `concurrent` | `4` | PDF concurrency (1–16) |
+| `request_interval` | `0.05` | Seconds between requests; `0` = flat out |
+| `concurrent` | `6` | PDF concurrency (1–16) |
 | `proxy` | `""` | HTTP/HTTPS proxy, e.g. `http://127.0.0.1:7890` |
 | `user_agent` | Chrome UA | Request User-Agent |
 
@@ -167,7 +170,7 @@ Created on first run. A broken file is backed up as `config.json.bad` and defaul
 | `text_output_format` | `"TXT"` | `TXT` / `MD` / `DOC` / `DOCX` |
 | `text_filename` | `"人民日报-{date}-文字版"` | Text file name template |
 | `text_include_edition` | `true` | Include page headings |
-| `text_concurrent` | `4` | Article fetch concurrency (1 = sequential) |
+| `text_concurrent` | `6` | Article fetch concurrency (1 = sequential) |
 
 ### Logging and scheduling
 
@@ -193,6 +196,42 @@ Created on first run. A broken file is backed up as `config.json.bad` and defaul
 | `2026-09-01~2026-09-03` | Dashed dates with a `~` range also work |
 
 Invalid dates (e.g. `20260134`), reversed ranges and malformed input are rejected before any download.
+
+
+---
+
+## Speed: what actually limits you
+
+Measured on a full 20-page issue (52.5 MB), same machine, same hour:
+
+| Request interval | Concurrency | Time | Throughput |
+|---|---|---|---|
+| 0.2 s (v2.0 default) | 4 | 16–19 s | 2.6–3.2 MB/s |
+| **0.05 s (current default)** | **6** | **6.7 s** | **7.9 MB/s** |
+| 0 s (flat out) | 8 | 1.6–2 s | 26–33 MB/s |
+
+What this means:
+
+- **The bottleneck is the request interval, not bandwidth and not CPU.** Each edition needs two
+  requests (page + PDF); 20 editions = 40 requests, and a 0.2 s gap alone costs 8 seconds.
+- **More processes or cores will not help.** This is pure network I/O; the GIL does not block I/O.
+- The server **does support Range requests** (206 observed): one connection tops out around 5 MB/s
+  and several connections add up to ~30 MB/s. But editions are already downloaded in parallel, so
+  splitting a single file adds little — only worth it when a day has one or two huge pages.
+- The server throttles sustained load: after five minutes of hammering, the same settings dropped to
+  4 MB/s. So do not use a zero interval as your daily driver.
+
+Three presets (GUI: Settings → 下载速度, or CLI `--interval`):
+
+| Preset | request_interval | When |
+|---|---|---|
+| Polite | `0.2` | background / scheduled daily runs |
+| **Standard (default)** | `0.05` | everyday manual downloads |
+| Flat out | `0` (with `--concurrent 8`) | one-off, accepting the throttling risk |
+
+```bash
+python rmrb_downloader.py 20261113 pdf --interval 0 --concurrent 8
+```
 
 ---
 
@@ -265,11 +304,11 @@ Compared to v1.3.0 (single script + console menu):
 
 **Performance (measured on a full 20-page issue, 2026-11-13)**
 
-| Scenario | v1.3.0 | Now |
-|---|---|---|
-| Download + merge 20 page PDFs (52.5 MB) | ~70 s | **16 s** |
-| Fetch text of all 20 pages (1509 lines / 354 KB) | ~100 s | **22 s** |
-| A date that does not exist (404) | 3 retries, ~6 s | **error in 0.06 s** |
+| Scenario | v1.3.0 | v2.0.0 | v2.1.0 |
+|---|---|---|---|
+| Download + merge 20 page PDFs (52.5 MB) | ~70 s | 16 s | **6.7 s** |
+| Fetch text of all 20 pages (1509 lines / 354 KB) | ~100 s | 22 s | **8.9 s** |
+| A date that does not exist (404) | 3 retries, ~6 s | 0.06 s | 0.06 s |
 
 How:
 
@@ -296,6 +335,13 @@ How:
 - The single-page folder is deleted only after a boundary check — **never the output root or anything
   outside it** (previously `download_dir: ""` plus `keep_singles: false` deleted the whole output
   folder together with the freshly merged PDF)
+
+### v2.1.0
+
+- Default request interval 0.2 s → **0.05 s**, concurrency 4 → **6**: a full issue went from 16 s to **6.7 s**
+- New `--interval` flag and a three-level speed selector in the GUI (polite / standard / flat out)
+- Config fallbacks now use the real defaults instead of a hard-coded 1
+- README documents the measurements and why extra processes do not help
 
 ---
 

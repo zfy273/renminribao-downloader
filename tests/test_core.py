@@ -213,10 +213,10 @@ class ConfigTest(unittest.TestCase):
     def test_numbers_are_clamped(self):
         cfg, warns = core.validate_config({"timeout": 0, "retry": 99, "concurrent": 0,
                                            "request_interval": -1})
-        self.assertEqual(cfg["timeout"], 30)
-        self.assertEqual(cfg["retry"], 3)
-        self.assertEqual(cfg["concurrent"], 1)
-        self.assertEqual(cfg["request_interval"], 0.2)
+        self.assertEqual(cfg["timeout"], core.DEFAULT_CONFIG["timeout"])
+        self.assertEqual(cfg["retry"], core.DEFAULT_CONFIG["retry"])
+        self.assertEqual(cfg["concurrent"], core.DEFAULT_CONFIG["concurrent"])
+        self.assertEqual(cfg["request_interval"], core.DEFAULT_CONFIG["request_interval"])
         self.assertTrue(warns)
 
     def test_download_dir_is_sanitised(self):

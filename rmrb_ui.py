@@ -18,6 +18,7 @@ from typing import Optional
 import rmrb_core as core
 
 ICON_NAME = "人民日报下载器.ico"
+SPEED_MAP = {"礼貌": 0.2, "标准": 0.05, "极速": 0.0}
 
 
 def enable_dpi_awareness() -> None:
@@ -165,6 +166,7 @@ class App:
         self.var_concurrent = tk.StringVar(value="1")
         self.var_text_concurrent = tk.StringVar(value="1")
         self.var_rate = tk.StringVar(value="0")
+        self.var_speed = tk.StringVar(value="标准")
         self.var_proxy = tk.StringVar()
 
         self.notebook = ttk.Notebook(outer)
@@ -361,6 +363,9 @@ class App:
                      values=["auto", "builtin", "pypdf"]).pack(side="left", padx=(6, 0))
         row3 = ttk.Frame(more)
         row3.grid(row=2, column=0, columnspan=2, sticky="w", pady=(6, 0))
+        ttk.Label(row3, text="下载速度").pack(side="left")
+        ttk.Combobox(row3, textvariable=self.var_speed, width=10, state="readonly",
+                     values=["礼貌", "标准", "极速"]).pack(side="left", padx=(6, 16))
         ttk.Label(row3, text="日志级别").pack(side="left")
         ttk.Combobox(row3, textvariable=self.var_log, width=9, state="readonly",
                      values=["quiet", "normal", "debug"]).pack(side="left", padx=(6, 0))
@@ -414,6 +419,8 @@ class App:
         self.var_skip.set(bool(cfg.get("skip_existing", False)))
         self.var_engine.set(str(cfg.get("pdf_engine", "auto")))
         self.var_log.set(str(cfg.get("log_level", "normal")))
+        interval = float(cfg.get("request_interval", core.DEFAULT_CONFIG["request_interval"]))
+        self.var_speed.set("礼貌" if interval >= 0.15 else ("标准" if interval > 0 else "极速"))
         self.status.configure(text="输出目录：%s" % core.out_root(cfg))
         for warn in self.warns:
             self.append_log("配置警告：%s" % warn, "warn")
@@ -437,6 +444,8 @@ class App:
         cfg["pdf_engine"] = self.var_engine.get()
         cfg["log_level"] = self.var_log.get()
         cfg["batch_merge_mode"] = self.batch_mode.get()
+        cfg["request_interval"] = SPEED_MAP.get(self.var_speed.get(),
+                                                core.DEFAULT_CONFIG["request_interval"])
 
         raw = self.edition_var.get().replace("，", ",").strip()
         editions = []

@@ -30,7 +30,7 @@ from urllib.parse import urljoin, urlsplit
 import rmrb_pdf
 
 APP_NAME = "人民日报电子版下载器"
-APP_VERSION = "2.0.0"
+APP_VERSION = "2.1.0"
 
 # 打包成 exe 后，config.json / 下载目录 / 日志都放在 exe 同级
 def app_dir() -> str:
@@ -49,8 +49,8 @@ DEFAULT_CONFIG = {
     "timeout": 30,
     "retry": 3,
     "retry_interval": 2,
-    "request_interval": 0.2,
-    "concurrent": 4,
+    "request_interval": 0.05,
+    "concurrent": 6,
     "proxy": "",
     "user_agent": ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
                    "(KHTML, like Gecko) Chrome/120.0 Safari/537.36"),
@@ -80,7 +80,7 @@ DEFAULT_CONFIG = {
     "text_output_format": "TXT",   # TXT / DOC / DOCX / MD
     "text_filename": "人民日报-{date}-文字版",
     "text_include_edition": True,
-    "text_concurrent": 4,          # 正文抓取并发（1 = 顺序）
+    "text_concurrent": 6,          # 正文抓取并发（1 = 顺序）
     # ---- 日志与通知 ----
     "log_file": "rmrb_download.log",
     "log_level": "normal",         # quiet / normal / debug
@@ -251,12 +251,12 @@ def validate_config(cfg: Dict[str, object]) -> Tuple[Dict[str, object], List[str
             cfg[key] = default
 
     _num("rate_limit_kbps", float, 0, 0, 102400)
-    _num("timeout", int, 30, 1, 86400)
-    _num("retry", int, 3, 0, 20)
-    _num("retry_interval", float, 2, 0, 300)
-    _num("request_interval", float, 0.2, 0, 300)
-    _num("concurrent", int, 1, 1, 16)
-    _num("text_concurrent", int, 1, 1, 16)
+    _num("timeout", int, DEFAULT_CONFIG["timeout"], 1, 86400)
+    _num("retry", int, DEFAULT_CONFIG["retry"], 0, 20)
+    _num("retry_interval", float, DEFAULT_CONFIG["retry_interval"], 0, 300)
+    _num("request_interval", float, DEFAULT_CONFIG["request_interval"], 0, 300)
+    _num("concurrent", int, DEFAULT_CONFIG["concurrent"], 1, 16)
+    _num("text_concurrent", int, DEFAULT_CONFIG["text_concurrent"], 1, 16)
     _num("log_max_kb", int, 512, 0, 1024 * 1024)
 
     if str(cfg.get("default_format", "pdf")).lower() not in ("text", "pdf", "both"):
