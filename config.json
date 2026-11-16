@@ -17,7 +17,7 @@
   "edition_filter": [],
   "holiday_skip": false,
   "batch_enable": false,
-  "batch_merge_mode": "all",
+  "batch_merge_mode": "each",
   "download_path": "",
   "download_dir": "pdfs_{date}",
   "merged_filename": "人民日报-{date}-完整版",
@@ -25,8 +25,9 @@
   "keep_singles": true,
   "open_folder_after": true,
   "skip_existing": false,
+  "split": 0,
   "pdf_engine": "auto",
-  "text_output_format": "DOCX",
+  "text_output_format": "TXT",
   "text_filename": "人民日报-{date}-文字版",
   "text_include_edition": true,
   "text_concurrent": 6,
@@ -36,6 +37,5 @@
   "beep_on_done": false,
   "msg_on_done": false,
   "auto_run": false,
-  "auto_run_time": "08:00",
-  "split": 0
+  "auto_run_time": "08:00"
 }

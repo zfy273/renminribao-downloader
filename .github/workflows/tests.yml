@@ -1,0 +1,33 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: ${{ matrix.os }} / Python ${{ matrix.python }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+        python: ["3.9", "3.12", "3.13"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+
+      - name: 语法检查
+        run: python -m py_compile rmrb_core.py rmrb_pdf.py rmrb_downloader.py rmrb_ui.py
+
+      - name: 单元测试（完全离线，不访问网络）
+        run: python -m unittest discover -s tests -v
+
+      - name: 命令行冒烟
+        run: python rmrb_downloader.py --help

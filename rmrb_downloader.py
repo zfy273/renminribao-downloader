@@ -251,7 +251,27 @@ def menu_main(cfg):
 # 运行封装
 # --------------------------------------------------------------------------
 
-def make_reporter(cfg) -> ConsoleReporter:
+class SilentReporter(core.Reporter):
+    """计划任务用：只写日志文件，不碰 stdout（--noconsole 打包后 stdout 可能是 None）。"""
+
+    def __init__(self, logger=None):
+        super().__init__(logger=logger)
+
+    def log(self, msg: str, level: str = "info") -> None:
+        if self.logger:
+            self.logger.write(msg, level)
+
+    def progress(self, fraction, text: str = "") -> None:
+        return
+
+
+def make_reporter(cfg, silent: bool = False):
+    if silent:
+        log_name = str(cfg.get("log_file") or "").strip() or "rmrb_download.log"
+        logger = core.Logger(os.path.join(core.HERE, log_name),
+                             str(cfg.get("log_level", "normal")),
+                             int(cfg.get("log_max_kb", 512) or 0))
+        return SilentReporter(logger)
     log_name = str(cfg.get("log_file") or "").strip()
     logger = None
     if log_name:
@@ -261,7 +281,9 @@ def make_reporter(cfg) -> ConsoleReporter:
     return ConsoleReporter(logger=logger)
 
 
-def finish(reporter, cfg, code: int, path: str = "") -> int:
+def finish(reporter, cfg, code: int, path: str = "", silent: bool = False) -> int:
+    if silent:
+        return code
     reporter.finish_line()
     core.notify(cfg, core.APP_NAME, "人民日报下载完成" if code == 0 else "人民日报下载失败，详见日志")
     if code == 0 and path and cfg.get("open_folder_after", True):
@@ -272,8 +294,8 @@ def finish(reporter, cfg, code: int, path: str = "") -> int:
     return code
 
 
-def run_single(cfg, date: str, fmt: str) -> int:
-    reporter = make_reporter(cfg)
+def run_single(cfg, date: str, fmt: str, silent: bool = False) -> int:
+    reporter = make_reporter(cfg, silent)
     session = core.Session(cfg, reporter)
     try:
         code = session.run_single(date, fmt)
@@ -286,11 +308,11 @@ def run_single(cfg, date: str, fmt: str) -> int:
     except Exception as exc:
         reporter.error("未预料的错误：%s" % core.describe_error(exc))
         return 1
-    return finish(reporter, session.cfg, code, session.last_output)
+    return finish(reporter, session.cfg, code, session.last_output, silent)
 
 
-def run_batch(cfg, expr: str, fmt: str, mode: str) -> int:
-    reporter = make_reporter(cfg)
+def run_batch(cfg, expr: str, fmt: str, mode: str, silent: bool = False) -> int:
+    reporter = make_reporter(cfg, silent)
     session = core.Session(cfg, reporter)
     try:
         code = session.run_batch(expr, fmt, mode)
@@ -303,7 +325,7 @@ def run_batch(cfg, expr: str, fmt: str, mode: str) -> int:
     except Exception as exc:
         reporter.error("未预料的错误：%s" % core.describe_error(exc))
         return 1
-    return finish(reporter, session.cfg, code, session.last_output)
+    return finish(reporter, session.cfg, code, session.last_output, silent)
 
 
 def launch_ui() -> int:
@@ -348,6 +370,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--engine", choices=["auto", "builtin", "pypdf"], help="PDF 合并引擎")
     parser.add_argument("--force", action="store_true", help="忽略 skip_existing，强制重新下载")
     parser.add_argument("--no-open", action="store_true", help="完成后不打开文件夹")
+    parser.add_argument("--silent", action="store_true",
+                        help="静默模式：不打印、不弹窗、不打开文件夹（供计划任务调用）")
     parser.add_argument("--concurrent", type=int, metavar="N", help="并发下载数（1-16）")
     parser.add_argument("--interval", type=float, metavar="秒",
                         help="请求间隔，默认 0.05；0 = 极速（无间隔，可能被限流）")
@@ -380,8 +404,12 @@ def main(argv=None) -> int:
         cfg["pdf_engine"] = options.engine
     if options.force:
         cfg["skip_existing"] = False
-    if options.no_open:
+    if options.no_open or options.silent:
         cfg["open_folder_after"] = False
+    if options.silent:
+        cfg["msg_on_done"] = False
+        cfg["beep_on_done"] = False
+        cfg["show_progress"] = False
     if options.concurrent:
         cfg["concurrent"] = max(1, min(16, options.concurrent))
     if options.interval is not None:
@@ -408,7 +436,7 @@ def main(argv=None) -> int:
             fmt = next((a.lower() for a in options.args if a.lower() in ("text", "pdf", "both")), "")
         fmt = fmt or str(cfg.get("default_format", "pdf"))
         mode = options.merge_mode or str(cfg.get("batch_merge_mode", "each"))
-        return run_batch(cfg, options.batch, fmt, mode)
+        return run_batch(cfg, options.batch, fmt, mode, options.silent)
 
     # 位置参数：兼容 `20260903 pdf` 与 `pdf` 两种写法
     if not options.args:
@@ -428,7 +456,7 @@ def main(argv=None) -> int:
     else:
         parser.print_help()
         return 1
-    return run_single(cfg, date_arg, fmt_arg)
+    return run_single(cfg, date_arg, fmt_arg, options.silent)
 
 
 if __name__ == "__main__":

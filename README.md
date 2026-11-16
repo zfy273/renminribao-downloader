@@ -7,6 +7,8 @@
 [![Dependencies](https://img.shields.io/badge/Dependencies-none-brightgreen)]()
 [![License](https://img.shields.io/badge/License-MIT-green)]()
 
+[![tests](https://github.com/zfy273/renminribao-downloader/actions/workflows/tests.yml/badge.svg)](https://github.com/zfy273/renminribao-downloader/actions/workflows/tests.yml)
+
 一个纯 Python 编写的《人民日报》电子版下载工具：下载当日全部版面 PDF 并合并、抓取文章正文、
 按日期批量下载，带 **Windows 原生图形界面** 和命令行两种用法。**零第三方依赖**——PDF 合并由内置的
 标准库实现，不需要 `pip install` 任何东西。
@@ -94,7 +96,7 @@ python rmrb_downloader.py 20260903 pdf --split 4
 
 # 其他
 python rmrb_downloader.py --init            # 生成/刷新 config.json
-python rmrb_downloader.py --task-install    # 注册每日自动下载计划任务
+python rmrb_downloader.py --task-install    # 注册每日自动下载计划任务（内部用 --silent 调用）
 python rmrb_downloader.py --task-remove     # 删除计划任务
 python rmrb_downloader.py -h                # 查看全部参数
 ```
@@ -349,6 +351,13 @@ pyinstaller --onefile --noconsole --name "人民日报下载器" ^
 - `download_dir`、`merged_filename`、`text_filename` 校验：拒绝绝对路径、盘符、`..`
 - 合并后清理单版目录前先做边界检查，**绝不会删除输出根目录或目录之外的路径**
   （此前把 `download_dir` 设为空串 + `keep_singles:false`，会把整个输出目录连同刚合并的 PDF 一起删掉）
+
+### v2.2.1
+
+- **修复：计划任务在 exe 版下只会弹出窗口、不会下载**（目标命令缺少参数，现已改为
+  `人民日报下载器.exe --silent <日期> <格式>`）
+- 新增 `--silent`：不打印、不弹窗、不打开资源管理器，只写日志，供计划任务/批处理调用
+- 新增 GitHub Actions：Windows + Linux × Python 3.9/3.12/3.13 跑 39 项离线测试
 
 ### v2.2.0
 

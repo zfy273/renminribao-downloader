@@ -7,6 +7,8 @@
 [![Dependencies](https://img.shields.io/badge/Dependencies-none-brightgreen)]()
 [![License](https://img.shields.io/badge/License-MIT-green)]()
 
+[![tests](https://github.com/zfy273/renminribao-downloader/actions/workflows/tests.yml/badge.svg)](https://github.com/zfy273/renminribao-downloader/actions/workflows/tests.yml)
+
 A pure-Python tool that downloads the electronic edition of **People's Daily (人民日报)**: fetch and
 merge every page PDF of a day, extract article text, and download date ranges in batch — available as a
 **native Windows GUI** and as a command-line tool. **No third-party dependencies**: PDF merging is done
@@ -92,7 +94,7 @@ python rmrb_downloader.py 20260903 pdf --interval 0 --concurrent 8
 
 # Misc
 python rmrb_downloader.py --init            # create/refresh config.json
-python rmrb_downloader.py --task-install    # register a daily scheduled task
+python rmrb_downloader.py --task-install    # register a daily task (it calls the tool with --silent)
 python rmrb_downloader.py --task-remove     # remove the scheduled task
 python rmrb_downloader.py -h                # all options
 ```
@@ -355,6 +357,13 @@ How:
 - The single-page folder is deleted only after a boundary check — **never the output root or anything
   outside it** (previously `download_dir: ""` plus `keep_singles: false` deleted the whole output
   folder together with the freshly merged PDF)
+
+### v2.2.1
+
+- **Fixed: the scheduled task only opened a window instead of downloading in the exe build**
+  (the task target had no arguments; it now runs `人民日报下载器.exe --silent <date> <format>`)
+- New `--silent`: no output, no dialogs, no Explorer, log only — meant for scheduled tasks
+- New GitHub Actions workflow: 39 offline tests on Windows + Linux across Python 3.9/3.12/3.13
 
 ### v2.2.0
 

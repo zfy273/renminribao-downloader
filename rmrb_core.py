@@ -30,7 +30,7 @@ from urllib.parse import urljoin, urlsplit
 import rmrb_pdf
 
 APP_NAME = "人民日报电子版下载器"
-APP_VERSION = "2.2.0"
+APP_VERSION = "2.2.1"
 
 # 打包成 exe 后，config.json / 下载目录 / 日志都放在 exe 同级
 def app_dir() -> str:
@@ -1536,11 +1536,16 @@ def task_command(cfg: Dict[str, object]) -> Tuple[List[str], str]:
     if not match or int(match.group(1)) > 23 or int(match.group(2)) > 59:
         when = "08:00"
     date_arg = str(cfg.get("default_date") or "").strip()
+    fmt = str(cfg.get("default_format", "pdf")).lower()
+    if fmt not in ("pdf", "text", "both"):
+        fmt = "pdf"
+    # --silent：不弹窗、不打印、不打开资源管理器，只按配置下载
+    tail = " ".join(x for x in ("--silent", date_arg, fmt) if x)
     if getattr(sys, "frozen", False):
-        exe = os.path.abspath(sys.executable)
-        target = '"%s" %s' % (exe, date_arg) if date_arg else '"%s"' % exe
+        target = '"%s" %s' % (os.path.abspath(sys.executable), tail)
     else:
-        target = '"%s" "%s" %s' % (sys.executable, os.path.abspath(sys.argv[0]), date_arg)
+        cli = os.path.join(os.path.dirname(os.path.abspath(__file__)), "rmrb_downloader.py")
+        target = '"%s" "%s" %s' % (sys.executable, cli, tail)
     target = re.sub(r"\s+", " ", target).strip()
     if len(target) > 260:
         raise ValueError("命令过长（%d 字符），schtasks 最多 261 字符，请把项目移到更短的路径"

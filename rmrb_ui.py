@@ -699,6 +699,11 @@ def _crash_report(exc: BaseException) -> None:
 
 
 if __name__ == "__main__":
+    # 打包后的 exe 也支持命令行模式：计划任务会用 `exe --silent 20260903 pdf` 调用
+    argv = sys.argv[1:]
+    if any(flag in argv for flag in ("--silent", "--cli")) or "--init" in argv:
+        import rmrb_downloader
+        sys.exit(rmrb_downloader.main(argv))
     try:
         sys.exit(main())
     except SystemExit:
