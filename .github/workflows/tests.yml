@@ -18,6 +18,14 @@ jobs:
       matrix:
         os: [windows-latest, ubuntu-latest]
         python: ["3.9", "3.12", "3.13"]
+        # ubuntu-24.04（ubuntu-latest）没有 3.9 的预装包，setup-python 会失败，
+        # 挪到 22.04 上跑；Windows 的 3.9 正常。
+        exclude:
+          - os: ubuntu-latest
+            python: "3.9"
+        include:
+          - os: ubuntu-22.04
+            python: "3.9"
 
     steps:
       - uses: actions/checkout@v4
