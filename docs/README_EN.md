@@ -26,6 +26,7 @@ by a built-in standard-library implementation, so nothing needs to be `pip insta
 | **Batch mode** | Date-range expressions; one file per day, or everything merged into one file |
 | **Edition filter** | Only download selected page numbers (e.g. pages 1 and 2) |
 | **Resume** | `skip_existing` skips already-downloaded pages, so an interrupted run can be restarted |
+| **Segmented download** | When a day has very few pages, one PDF is split into 4 Range requests (+61% per file) |
 | **Fully configurable** | Network, proxy, rate limit, concurrency, output, logging, scheduling in `config.json` |
 | **Zero dependencies** | Standard library only; `pypdf` is an optional fallback for exotic PDFs |
 | **Robust** | Retries, Chinese-friendly error messages, log rotation, atomic config writes, delete guards |
@@ -162,6 +163,7 @@ Created on first run. A broken file is backed up as `config.json.bad` and defaul
 | `open_folder_after` | `true` | Reveal the output when finished |
 | `skip_existing` | `false` | Skip single PDFs that already exist |
 | `pdf_engine` | `"auto"` | `auto` / `builtin` / `pypdf` |
+| `split` | `0` | Segments per file: `0`=auto (4 when ≤3 pages), `1`=off, `2–8`=fixed |
 
 ### Text output
 
@@ -220,6 +222,24 @@ What this means:
   splitting a single file adds little — only worth it when a day has one or two huge pages.
 - The server throttles sustained load: after five minutes of hammering, the same settings dropped to
   4 MB/s. So do not use a zero interval as your daily driver.
+
+### Segmented download (only pays off when a day has few pages)
+
+The server supports `Range` (206 observed). On days with 1–3 pages a single connection cannot fill
+the link, so splitting one PDF into four parallel requests helps (same 5.9 MB file, 4 rounds):
+
+| Mode | Average |
+|---|---|
+| Single connection | 5.14 MB/s |
+| **4 segments** | **8.29 MB/s (+61%)** |
+| 8 segments | 7.33 MB/s (no further gain) |
+
+A normal 20-page day does not need it (pages are already fetched in parallel), so the default is
+**auto**: 4 segments when ≤3 pages, single connection otherwise. Force it with `--split 4`, disable
+with `--split 1`.
+
+> Segmentation gains swing with server load: the same configuration measured between 0.5 s and 2.4 s.
+> The table above aggregates four rounds.
 
 Three presets (GUI: Settings → 下载速度, or CLI `--interval`):
 
@@ -335,6 +355,13 @@ How:
 - The single-page folder is deleted only after a boundary check — **never the output root or anything
   outside it** (previously `download_dir: ""` plus `keep_singles: false` deleted the whole output
   folder together with the freshly merged PDF)
+
+### v2.2.0
+
+- **HTTP Range segmented download**: 4 parallel requests when a day has ≤3 pages, 5.14 → 8.29 MB/s per file (4-round average)
+- New `--split N` flag and a "分片" selector in the GUI (auto / off / 2 / 4 / 8)
+- Choosing a speed preset now also sets the matching concurrency (polite 4 / standard 6 / flat out 8)
+- Read buffer raised from 64 KB to 256 KB
 
 ### v2.1.0
 

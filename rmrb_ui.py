@@ -19,6 +19,8 @@ import rmrb_core as core
 
 ICON_NAME = "人民日报下载器.ico"
 SPEED_MAP = {"礼貌": 0.2, "标准": 0.05, "极速": 0.0}
+SPEED_CONCURRENCY = {"礼貌": 4, "标准": 6, "极速": 8}
+SPLIT_MAP = {"自动": 0, "关闭": 1, "2 路": 2, "4 路": 4, "8 路": 8}
 
 
 def enable_dpi_awareness() -> None:
@@ -167,6 +169,7 @@ class App:
         self.var_text_concurrent = tk.StringVar(value="1")
         self.var_rate = tk.StringVar(value="0")
         self.var_speed = tk.StringVar(value="标准")
+        self.var_split = tk.StringVar(value="自动")
         self.var_proxy = tk.StringVar()
 
         self.notebook = ttk.Notebook(outer)
@@ -364,8 +367,13 @@ class App:
         row3 = ttk.Frame(more)
         row3.grid(row=2, column=0, columnspan=2, sticky="w", pady=(6, 0))
         ttk.Label(row3, text="下载速度").pack(side="left")
-        ttk.Combobox(row3, textvariable=self.var_speed, width=10, state="readonly",
-                     values=["礼貌", "标准", "极速"]).pack(side="left", padx=(6, 16))
+        speed_box = ttk.Combobox(row3, textvariable=self.var_speed, width=10, state="readonly",
+                                 values=["礼貌", "标准", "极速"])
+        speed_box.pack(side="left", padx=(6, 16))
+        speed_box.bind("<<ComboboxSelected>>", self.on_speed_changed)
+        ttk.Label(row3, text="分片").pack(side="left")
+        ttk.Combobox(row3, textvariable=self.var_split, width=8, state="readonly",
+                     values=["自动", "关闭", "2 路", "4 路", "8 路"]).pack(side="left", padx=(6, 0))
         ttk.Label(row3, text="日志级别").pack(side="left")
         ttk.Combobox(row3, textvariable=self.var_log, width=9, state="readonly",
                      values=["quiet", "normal", "debug"]).pack(side="left", padx=(6, 0))
@@ -421,6 +429,8 @@ class App:
         self.var_log.set(str(cfg.get("log_level", "normal")))
         interval = float(cfg.get("request_interval", core.DEFAULT_CONFIG["request_interval"]))
         self.var_speed.set("礼貌" if interval >= 0.15 else ("标准" if interval > 0 else "极速"))
+        split = int(cfg.get("split", 0) or 0)
+        self.var_split.set({0: "自动", 1: "关闭"}.get(split, "%d 路" % split))
         self.status.configure(text="输出目录：%s" % core.out_root(cfg))
         for warn in self.warns:
             self.append_log("配置警告：%s" % warn, "warn")
@@ -446,6 +456,7 @@ class App:
         cfg["batch_merge_mode"] = self.batch_mode.get()
         cfg["request_interval"] = SPEED_MAP.get(self.var_speed.get(),
                                                 core.DEFAULT_CONFIG["request_interval"])
+        cfg["split"] = SPLIT_MAP.get(self.var_split.get(), 0)
 
         raw = self.edition_var.get().replace("，", ",").strip()
         editions = []
@@ -495,6 +506,10 @@ class App:
         self.root.after(80, self._drain)
 
     # ------------------------------------------------------------------ 动作
+    def on_speed_changed(self, _event=None) -> None:
+        """切档位时顺手把并发调到配套值，用户仍可手动改。"""
+        self.var_concurrent.set(str(SPEED_CONCURRENCY.get(self.var_speed.get(), 6)))
+
     def on_browse(self) -> None:
         initial = self.path_var.get().strip() or core.out_root(self.cfg)
         chosen = filedialog.askdirectory(initialdir=initial if os.path.isdir(initial) else core.HERE,

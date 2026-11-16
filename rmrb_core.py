@@ -30,7 +30,7 @@ from urllib.parse import urljoin, urlsplit
 import rmrb_pdf
 
 APP_NAME = "人民日报电子版下载器"
-APP_VERSION = "2.1.0"
+APP_VERSION = "2.2.0"
 
 # 打包成 exe 后，config.json / 下载目录 / 日志都放在 exe 同级
 def app_dir() -> str:
@@ -75,6 +75,7 @@ DEFAULT_CONFIG = {
     "keep_singles": True,
     "open_folder_after": True,
     "skip_existing": False,
+    "split": 0,                    # 0=自动（版面<=3 时分片）1=关闭 2-8=固定路数
     "pdf_engine": "auto",          # auto / builtin / pypdf
     # ---- 文字输出 ----
     "text_output_format": "TXT",   # TXT / DOC / DOCX / MD
@@ -258,6 +259,7 @@ def validate_config(cfg: Dict[str, object]) -> Tuple[Dict[str, object], List[str
     _num("concurrent", int, DEFAULT_CONFIG["concurrent"], 1, 16)
     _num("text_concurrent", int, DEFAULT_CONFIG["text_concurrent"], 1, 16)
     _num("log_max_kb", int, 512, 0, 1024 * 1024)
+    _num("split", int, 0, 0, 8)
 
     if str(cfg.get("default_format", "pdf")).lower() not in ("text", "pdf", "both"):
         warns.append("default_format=%r 非法，回退为 pdf" % cfg.get("default_format"))
@@ -422,6 +424,38 @@ class HttpStatusError(Exception):
         self.url = url
 
 
+MIN_SPLIT_BYTES = 1500 * 1024        # 小于 1.5 MB 的文件分片不划算
+
+
+class RangeUnsupported(Exception):
+    """服务器或文件不支持分片下载。"""
+
+
+def parse_content_range(value: Optional[str]) -> int:
+    """从 `bytes 0-1023/24106` 中取出文件总长度。"""
+    if not value:
+        return 0
+    match = re.search(r"/\s*(\d+)\s*$", value)
+    return int(match.group(1)) if match else 0
+
+
+def plan_ranges(total: int, split: int) -> List[Tuple[int, int]]:
+    """把 [0, total) 切成 split 个闭区间，每段长度尽量相等。"""
+    if total <= 0:
+        return []
+    split = max(1, min(int(split), total))
+    if split == 1:
+        return [(0, total - 1)]
+    chunk = total // split
+    ranges: List[Tuple[int, int]] = []
+    start = 0
+    for index in range(split):
+        end = total - 1 if index == split - 1 else start + chunk - 1
+        ranges.append((start, end))
+        start = end + 1
+    return ranges
+
+
 def _permanent(exc: BaseException) -> bool:
     """4xx（限流 429 与超时 408 除外）属于永久性错误，重试没有意义。"""
     return isinstance(exc, HttpStatusError) and 400 <= exc.code < 500 \
@@ -504,27 +538,26 @@ class Downloader:
             except Exception:
                 pass
 
-    def _open_urllib(self, url: str, timeout: float):
+    def _open_urllib(self, url: str, timeout: float, headers: Optional[dict] = None):
         handlers = []
         if self.proxy:
             handlers.append(urllib.request.ProxyHandler({"http": self.proxy,
                                                          "https": self.proxy}))
         opener = urllib.request.build_opener(*handlers)
-        req = urllib.request.Request(url, headers={
-            "User-Agent": self.ua,
-            "Referer": self.base_url,
-            "Accept-Encoding": "identity",
-        })
+        merged = {"User-Agent": self.ua, "Referer": self.base_url,
+                  "Accept-Encoding": "identity"}
+        merged.update(headers or {})
+        req = urllib.request.Request(url, headers=merged)
         try:
             return _UrllibResponse(opener.open(req, timeout=timeout)), None
         except urllib.error.HTTPError as exc:
             raise HttpStatusError(url, exc.code, str(exc.reason)) from exc
 
-    def _open(self, url: str, timeout: float, depth: int = 0):
+    def _open(self, url: str, timeout: float, depth: int = 0, headers: Optional[dict] = None):
         """打开一个 URL，返回 (响应对象, 连接标识)；调用方读完必须 _release()。"""
         parts = urlsplit(url)
         if self.proxy or parts.scheme not in ("http", "https") or depth > 5:
-            return self._open_urllib(url, timeout)
+            return self._open_urllib(url, timeout, headers)
 
         path = (parts.path or "/") + (("?" + parts.query) if parts.query else "")
         last_error: Optional[BaseException] = None
@@ -536,6 +569,8 @@ class Downloader:
                 conn.putheader("Referer", self.base_url)
                 conn.putheader("Accept-Encoding", "identity")
                 conn.putheader("Connection", "keep-alive")
+                for name, value in (headers or {}).items():
+                    conn.putheader(name, value)
                 conn.endheaders()
                 response = conn.getresponse()
                 break
@@ -557,7 +592,7 @@ class Downloader:
             self._release(parts, response)
             if not location:
                 raise HttpStatusError(url, response.status, "重定向缺少 Location")
-            return self._open(urljoin(url, location), timeout, depth + 1)
+            return self._open(urljoin(url, location), timeout, depth + 1, headers)
         if response.status >= 400:
             response.read()
             self._release(parts, response)
@@ -568,10 +603,11 @@ class Downloader:
         if parts is not None and getattr(response, "will_close", True):
             self._drop(parts)
 
-    def _request(self, url: str, timeout: Optional[float] = None):
+    def _request(self, url: str, timeout: Optional[float] = None,
+                 headers: Optional[dict] = None):
         self.pacer.wait()
         self.reporter.check_stop()
-        return self._open(url, timeout or self.timeout)
+        return self._open(url, timeout or self.timeout, headers=headers)
 
     def fetch(self, url: str, timeout: Optional[float] = None) -> bytes:
         last: Optional[BaseException] = None
@@ -602,8 +638,25 @@ class Downloader:
             time.sleep(min(delay, 5.0))
 
     def download_file(self, url: str, path: str, label: str,
-                      on_bytes: Optional[Callable[[int, int], None]] = None) -> int:
-        """流式下载到文件；失败重试并清理残文件。返回字节数。"""
+                      on_bytes: Optional[Callable[[int, int], None]] = None,
+                      split: int = 1) -> int:
+        """下载到文件。split > 1 时按 HTTP Range 分片多连接下载，失败自动退回单连接。"""
+        if split and split > 1:
+            try:
+                return self._download_split(url, path, label, on_bytes, split)
+            except Stopped:
+                raise
+            except RangeUnsupported as exc:
+                self.reporter.debug("%s 未使用分片：%s" % (label, exc))
+            except Exception as exc:
+                if _permanent(exc):
+                    raise
+                self.reporter.warn("%s 分片下载失败（%s），改用单连接"
+                                   % (label, describe_error(exc)))
+        return self._download_single(url, path, label, on_bytes)
+
+    def _download_single(self, url: str, path: str, label: str,
+                         on_bytes: Optional[Callable[[int, int], None]] = None) -> int:
         last: Optional[BaseException] = None
         tmp = path + ".part"
         for attempt in range(self.retry + 1):
@@ -615,7 +668,7 @@ class Downloader:
                 try:
                     with open(tmp, "wb") as fh:
                         while True:
-                            chunk = response.read(65536)
+                            chunk = response.read(262144)
                             if not chunk:
                                 break
                             fh.write(chunk)
@@ -649,6 +702,89 @@ class Downloader:
                     label, attempt + 1, self.retry, describe_error(exc)))
                 time.sleep(self.retry_interval)
         raise last if last else RuntimeError("下载失败")
+
+    def _download_split(self, url: str, path: str, label: str,
+                        on_bytes: Optional[Callable[[int, int], None]], split: int) -> int:
+        """HTTP Range 分片下载（类似 aria2 的 -x/-s），用于版面很少的大文件。"""
+        timeout = max(self.timeout, 120)
+        probe, parts = self._request(url, timeout, headers={"Range": "bytes=0-0"})
+        try:
+            status = probe.status
+            total = parse_content_range(probe.getheader("Content-Range"))
+            probe.read()
+        finally:
+            self._release(parts, probe)
+        if status != 206 or total <= 0:
+            raise RangeUnsupported("服务器返回 HTTP %s，不支持 Range" % status)
+        if total < MIN_SPLIT_BYTES:
+            raise RangeUnsupported("文件仅 %.1f MB" % (total / 1048576))
+
+        ranges = plan_ranges(total, split)
+        tmp = path + ".part"
+        with open(tmp, "wb") as fh:
+            fh.truncate(total)
+        counts = [0] * len(ranges)
+        lock = threading.Lock()
+
+        def report() -> None:
+            if on_bytes:
+                on_bytes(sum(counts), total)
+
+        def worker(index: int, start: int, end: int) -> None:
+            expected = end - start + 1
+            last: Optional[BaseException] = None
+            for attempt in range(self.retry + 1):
+                written = 0
+                try:
+                    response, parts = self._request(
+                        url, timeout, headers={"Range": "bytes=%d-%d" % (start, end)})
+                    try:
+                        if response.status != 206:
+                            raise RangeUnsupported("分片返回 HTTP %s" % response.status)
+                        with open(tmp, "r+b") as fh:
+                            fh.seek(start)
+                            while True:
+                                chunk = response.read(262144)
+                                if not chunk:
+                                    break
+                                fh.write(chunk)
+                                written += len(chunk)
+                                with lock:
+                                    counts[index] = written
+                                    report()
+                    finally:
+                        self._release(parts, response)
+                    if written != expected:
+                        raise IOError("分片 #%d 长度不符 %d/%d" % (index, written, expected))
+                    return
+                except Stopped:
+                    raise
+                except Exception as exc:
+                    last = exc
+                    with lock:
+                        counts[index] = 0
+                    if _permanent(exc) or attempt >= self.retry:
+                        raise
+                    time.sleep(self.retry_interval)
+            raise last if last else RuntimeError("分片下载失败")
+
+        try:
+            with ThreadPoolExecutor(max_workers=len(ranges)) as pool:
+                futures = [pool.submit(worker, i, s, e) for i, (s, e) in enumerate(ranges)]
+                for future in futures:
+                    future.result()
+            if os.path.getsize(tmp) != total:
+                raise IOError("分片拼接后大小不符")
+            os.replace(tmp, path)
+            self.reporter.debug("%s 已用 %d 路分片下载 %.1f MB" % (label, len(ranges), total / 1048576))
+            return total
+        except Exception:
+            try:
+                if os.path.exists(tmp):
+                    os.remove(tmp)
+            except OSError:
+                pass
+            raise
 
 
 # --------------------------------------------------------------------------
@@ -919,6 +1055,13 @@ class Session:
     def _disp(self, date: str) -> str:
         return "%s-%s-%s" % (date[:4], date[4:6], date[6:])
 
+    def effective_split(self, file_count: int) -> int:
+        """0=自动：只在版面很少（下载目标少、整条线路用不满）时分片。"""
+        raw = int(self.cfg.get("split", 0) or 0)
+        if raw <= 0:
+            return 4 if file_count <= 3 else 1
+        return max(1, min(8, raw))
+
     def _node_html(self, date: str, edition: str) -> str:
         """版面页 HTML 缓存：PDF 与文字模式共用，避免重复请求。"""
         key = "%s/%s" % (date, edition)
@@ -942,6 +1085,9 @@ class Session:
         os.makedirs(out_dir, exist_ok=True)
         base = str(self.cfg.get("base_url") or DEFAULT_CONFIG["base_url"])
         skip_existing = bool(self.cfg.get("skip_existing"))
+        split = self.effective_split(len(nodes))
+        if split > 1:
+            self.reporter.debug("版面数 %d，启用 %d 路分片下载" % (len(nodes), split))
         done_count = [0]
         lock = threading.Lock()
 
@@ -964,7 +1110,8 @@ class Session:
                             label, done * 100.0 / total_bytes,
                             done / 1048576, total_bytes / 1048576))
 
-                self.dl.download_file("%s/%s" % (base, found[0]), path, label, on_bytes)
+                self.dl.download_file("%s/%s" % (base, found[0]), path, label, on_bytes,
+                                      split=split)
                 self.reporter.info("第%s版下载完成  %.1f MB" % (edition, os.path.getsize(path) / 1048576))
                 return path
             except Stopped:

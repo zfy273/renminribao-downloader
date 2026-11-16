@@ -351,6 +351,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--concurrent", type=int, metavar="N", help="并发下载数（1-16）")
     parser.add_argument("--interval", type=float, metavar="秒",
                         help="请求间隔，默认 0.05；0 = 极速（无间隔，可能被限流）")
+    parser.add_argument("--split", type=int, metavar="N",
+                        help="单文件分片路数：0=自动（版面<=3 时 4 路）、1=关闭、2-8=固定")
     parser.add_argument("--text-format", choices=["TXT", "MD", "DOC", "DOCX"],
                         help="文字输出格式")
     parser.add_argument("-V", "--version", action="version",
@@ -384,6 +386,8 @@ def main(argv=None) -> int:
         cfg["concurrent"] = max(1, min(16, options.concurrent))
     if options.interval is not None:
         cfg["request_interval"] = max(0.0, min(300.0, options.interval))
+    if options.split is not None:
+        cfg["split"] = max(0, min(8, options.split))
     if options.text_format:
         cfg["text_output_format"] = options.text_format
 

@@ -342,6 +342,38 @@ class TextOutputTest(unittest.TestCase):
 # 其它
 # --------------------------------------------------------------------------
 
+class SplitTest(unittest.TestCase):
+    def test_plan_ranges_covers_whole_file(self):
+        for total, split in ((100, 1), (100, 4), (101, 4), (7, 3)):
+            ranges = core.plan_ranges(total, split)
+            self.assertEqual(ranges[0][0], 0)
+            self.assertEqual(ranges[-1][1], total - 1)
+            for (_, end), (start, _) in zip(ranges, ranges[1:]):
+                self.assertEqual(start, end + 1, "分片必须连续无重叠")
+            self.assertTrue(all(start <= end for start, end in ranges))
+
+    def test_plan_ranges_edge_cases(self):
+        self.assertEqual(core.plan_ranges(0, 4), [])
+        self.assertEqual(len(core.plan_ranges(3, 8)), 3)
+        self.assertEqual(core.plan_ranges(10, 1), [(0, 9)])
+
+    def test_parse_content_range(self):
+        self.assertEqual(core.parse_content_range("bytes 0-1023/24106"), 24106)
+        self.assertEqual(core.parse_content_range("bytes 0-0/*"), 0)
+        self.assertEqual(core.parse_content_range(None), 0)
+
+    def test_effective_split_auto(self):
+        cfg, _ = core.validate_config(dict(core.DEFAULT_CONFIG))
+        session = core.Session(cfg, core.Reporter())
+        self.assertEqual(session.effective_split(1), 4)
+        self.assertEqual(session.effective_split(3), 4)
+        self.assertEqual(session.effective_split(20), 1)
+        session.cfg["split"] = 1
+        self.assertEqual(session.effective_split(1), 1)
+        session.cfg["split"] = 6
+        self.assertEqual(session.effective_split(20), 6)
+
+
 class TaskCommandTest(unittest.TestCase):
     def test_command_is_a_list_and_quotes_path(self):
         args, when = core.task_command({"auto_run_time": "07:30", "default_date": ""})
