@@ -22,12 +22,36 @@ import rmrb_core as core
 # 控制台适配
 # --------------------------------------------------------------------------
 
+def _ensure_encodable(stream) -> None:
+    """控制台编码装不下中文时（如 cp1252 的英文版 Windows），退回 UTF-8。
+
+    不做这件事，`--help` 或任何中文输出都会直接抛 UnicodeEncodeError，
+    在英文 locale 的 Windows 上等于程序一启动就崩。
+    """
+    if stream is None:
+        return
+    encoding = (getattr(stream, "encoding", "") or "").lower()
+    if not encoding:
+        return
+    try:
+        "人民日报".encode(encoding)
+        return
+    except (UnicodeEncodeError, LookupError):
+        pass
+    try:
+        stream.reconfigure(encoding="utf-8", errors="replace")   # type: ignore[attr-defined]
+    except Exception:
+        pass
+
+
 def fix_console() -> None:
     """仅当控制台代码页是 GBK 且输出被重定向成 UTF-8 时才回落 GBK。
 
     原实现无条件把 stdout 重开成 GBK，在 Windows Terminal / VS Code（默认 UTF-8）
     里反而会乱码，遇到表情符号还会直接抛 UnicodeEncodeError。
     """
+    _ensure_encodable(sys.stdout)
+    _ensure_encodable(sys.stderr)
     if sys.platform != "win32":
         return
     try:
