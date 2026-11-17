@@ -90,10 +90,18 @@ class App:
         self.last_output = ""
 
         root.title("%s  v%s" % (core.APP_NAME, core.APP_VERSION))
+        self._probe_job = None
+        self.last_failed = []
         self._setup_style()
-        root.minsize(int(760 * self.scale), int(620 * self.scale))
+        # 小屏（1366×768）上 850px 的窗口会把底部按钮顶到任务栏下面
+        width = int(780 * self.scale)
+        height = min(int(860 * self.scale),
+                     root.winfo_screenheight() - int(90 * self.scale))
+        root.geometry("%dx%d" % (width, height))
+        root.minsize(int(700 * self.scale), int(520 * self.scale))
         self._build()
         self._load_state()
+        self._bind_shortcuts()
 
         root.protocol("WM_DELETE_WINDOW", self.on_close)
         root.after(80, self._drain)
@@ -217,8 +225,30 @@ class App:
         self.open_last_btn = ttk.Button(actions, text="打开最近文件", command=self.on_open_last,
                                         width=14, state="disabled")
         self.open_last_btn.pack(side="left", padx=(8, 0))
+        self.retry_btn = ttk.Button(actions, text="重试失败的 0 天",
+                                    command=self.on_retry_failed, width=16, state="disabled")
+        self.retry_btn.pack(side="left", padx=(8, 0))
         ttk.Button(actions, text="退出", command=self.on_close, width=10) \
             .pack(side="right")
+
+    def _bind_shortcuts(self) -> None:
+        root = self.root
+        root.bind("<Control-Return>", lambda _e: self.on_start())
+        root.bind("<Escape>", lambda _e: self.on_stop())
+        for seq in ("<Control-o>", "<Control-O>"):
+            root.bind(seq, lambda _e: self.on_open())
+        for seq in ("<Control-s>", "<Control-S>"):
+            root.bind(seq, lambda _e: self.on_save_config())
+        root.bind("<F1>", lambda _e: self.open_help())
+
+    def open_help(self) -> None:
+        for name in ("README.md", "使用说明.md"):
+            path = os.path.join(core.HERE, name)
+            if os.path.exists(path):
+                core.open_folder(path) if os.name != "nt" else os.startfile(path)  # type: ignore
+                return
+        import webbrowser
+        webbrowser.open("https://github.com/zfy273/renminribao-downloader#readme")
 
     def _output_group(self, parent) -> None:
         """输出目录 + 完成后动作。多个页签共用同一组变量，随便在哪改都生效。"""
@@ -230,8 +260,6 @@ class App:
         ttk.Entry(row, textvariable=self.path_var).pack(side="left", fill="x", expand=True,
                                                        padx=(8, 8))
         ttk.Button(row, text="浏览…", width=8, command=self.on_browse).pack(side="left")
-        ttk.Checkbutton(box, text="完成后打开文件位置", variable=self.var_open) \
-            .pack(anchor="w", pady=(8, 0))
         ttk.Label(box, text="留空 = 程序所在目录（config.json 旁边）", foreground="#666") \
             .pack(anchor="w", pady=(4, 0))
 
@@ -242,14 +270,29 @@ class App:
         row = ttk.Frame(tab)
         row.pack(fill="x")
         ttk.Label(row, text="日期").pack(side="left")
-        self.date_var = tk.StringVar()
-        entry = ttk.Entry(row, textvariable=self.date_var, width=14, font=self.font)
-        entry.pack(side="left", padx=(8, 8))
+        today = datetime.date.today()
+        self.year_var = tk.StringVar(value=str(today.year))
+        self.month_var = tk.StringVar(value="%02d" % today.month)
+        self.day_var = tk.StringVar(value="%02d" % today.day)
+        spin = dict(width=5, command=self._normalize_date, wrap=True)
+        year = ttk.Spinbox(row, from_=2000, to=2100, textvariable=self.year_var, **spin)
+        year.pack(side="left", padx=(8, 2))
+        ttk.Label(row, text="年").pack(side="left")
+        month = ttk.Spinbox(row, from_=1, to=12, textvariable=self.month_var, **spin)
+        month.pack(side="left", padx=(6, 2))
+        ttk.Label(row, text="月").pack(side="left")
+        self.day_spin = ttk.Spinbox(row, from_=1, to=31, textvariable=self.day_var, **spin)
+        self.day_spin.pack(side="left", padx=(6, 2))
+        ttk.Label(row, text="日").pack(side="left")
+        for widget in (year, month, self.day_spin):
+            widget.bind("<FocusOut>", self._normalize_date)
+            widget.bind("<Return>", lambda _e: self.on_start())
         ttk.Button(row, text="今天", width=7,
-                   command=lambda: self.date_var.set(self._today())).pack(side="left")
+                   command=lambda: self._set_date(self._today())).pack(side="left", padx=(10, 0))
         ttk.Button(row, text="昨天", width=7,
-                   command=lambda: self.date_var.set(self._yesterday())).pack(side="left", padx=(6, 0))
-        ttk.Label(row, text="格式：YYYYMMDD", foreground="#666").pack(side="left", padx=(12, 0))
+                   command=lambda: self._set_date(self._yesterday())).pack(side="left", padx=(6, 0))
+        self.edition_hint = ttk.Label(row, text="", foreground="#666")
+        self.edition_hint.pack(side="left", padx=(14, 0))
 
         fmt = ttk.LabelFrame(tab, text="输出内容", padding=10)
         fmt.pack(fill="x", pady=(12, 0))
@@ -291,6 +334,15 @@ class App:
                    command=lambda: self.batch_var.set(self._this_week())).pack(side="left", padx=(8, 0))
         ttk.Button(row, text="本月", width=7,
                    command=lambda: self.batch_var.set(self._this_month())).pack(side="left", padx=(6, 0))
+        self.days_var = tk.StringVar(value="7")
+        recent = ttk.Spinbox(row, from_=1, to=365, textvariable=self.days_var, width=4,
+                             command=self._update_recent_label)
+        recent.pack(side="left", padx=(10, 2))
+        recent.bind("<Return>", lambda _e: self._fill_recent())
+        ttk.Label(row, text="天").pack(side="left")
+        self.recent_btn = ttk.Button(row, text="最近 7 天", width=11,
+                                     command=self._fill_recent)
+        self.recent_btn.pack(side="left", padx=(6, 0))
         ttk.Label(tab, text="示例：20260901-20260903,20260905    20260801-（到今天）",
                   foreground="#666").pack(anchor="w", pady=(6, 0))
 
@@ -383,10 +435,56 @@ class App:
         foot = ttk.Frame(tab)
         foot.pack(fill="x", pady=(14, 0))
         ttk.Button(foot, text="保存配置", command=self.on_save_config, width=12).pack(side="left")
+        ttk.Button(foot, text="恢复默认", command=self.on_reset_config, width=12) \
+            .pack(side="left", padx=(8, 0))
         ttk.Label(foot, text="保存在 config.json，命令行与界面共用同一份。",
                   foreground="#666").pack(side="left", padx=(12, 0))
 
     # ------------------------------------------------------------------ 状态
+    def _normalize_date(self, _event=None) -> None:
+        """年份/月份变了就把日收进合法范围（2 月不会留 31 日）。"""
+        try:
+            value = core.clamp_date(int(self.year_var.get()), int(self.month_var.get()),
+                                    int(self.day_var.get()))
+        except (TypeError, ValueError):
+            return
+        self.year_var.set(str(value.year))
+        self.month_var.set("%02d" % value.month)
+        self.day_var.set("%02d" % value.day)
+        self.day_spin.configure(to=core.days_in_month(value.year, value.month))
+        self._schedule_probe()
+
+    def _date_value(self) -> str:
+        self._normalize_date()
+        return "%s%s%s" % (self.year_var.get(), self.month_var.get(), self.day_var.get())
+
+    def _set_date(self, value: str) -> None:
+        try:
+            parsed = datetime.datetime.strptime(value, "%Y%m%d")
+        except ValueError:
+            return
+        self.year_var.set(str(parsed.year))
+        self.month_var.set("%02d" % parsed.month)
+        self.day_var.set("%02d" % parsed.day)
+        self._normalize_date()
+
+    def _update_recent_label(self) -> None:
+        try:
+            days = max(1, min(365, int(self.days_var.get())))
+        except (TypeError, ValueError):
+            days = 7
+        if hasattr(self, "recent_btn"):
+            self.recent_btn.configure(text="最近 %d 天" % days)
+
+    def _fill_recent(self) -> None:
+        try:
+            days = max(1, min(365, int(self.days_var.get())))
+        except (TypeError, ValueError):
+            days = 7
+        end = datetime.date.today()
+        start = end - datetime.timedelta(days=days - 1)
+        self.batch_var.set("%s-%s" % (start.strftime("%Y%m%d"), end.strftime("%Y%m%d")))
+
     def _today(self) -> str:
         return datetime.date.today().strftime("%Y%m%d")
 
@@ -402,9 +500,32 @@ class App:
         today = datetime.date.today()
         return "%s-%s" % (today.replace(day=1).strftime("%Y%m%d"), today.strftime("%Y%m%d"))
 
+    def _schedule_probe(self) -> None:
+        """日期变了 0.5 秒后去问一次"这天几版"，只花一个请求。"""
+        if not hasattr(self, "edition_hint"):
+            return
+        if self._probe_job:
+            try:
+                self.root.after_cancel(self._probe_job)
+            except Exception:
+                pass
+        self._probe_job = self.root.after(500, self._probe_now)
+
+    def _probe_now(self) -> None:
+        self._probe_job = None
+        date = self._date_value()
+        cfg = dict(self.cfg)
+        self.edition_hint.configure(text="读取版面…")
+
+        def run() -> None:
+            count, ok = core.probe_edition_count(cfg, date)
+            self.queue.put(("probe", (date, count, ok)))
+
+        threading.Thread(target=run, daemon=True).start()
+
     def _load_state(self) -> None:
         cfg, ui = self.cfg, self.ui_state
-        self.date_var.set(str(ui.get("date") or cfg.get("default_date") or self._today()))
+        self._set_date(str(ui.get("date") or cfg.get("default_date") or self._today()))
         self.batch_var.set(str(ui.get("batch") or ""))
         self.edition_var.set(str(ui.get("edition") or ""))
         self.single_pdf.set(bool(ui.get("pdf", True)))
@@ -423,10 +544,10 @@ class App:
         self.var_rate.set(str(int(float(cfg.get("rate_limit_kbps", 0)))))
         self.var_proxy.set(str(cfg.get("proxy") or ""))
         self.var_keep.set(bool(cfg.get("keep_singles", True)))
-        self.var_open.set(bool(cfg.get("open_folder_after", True)))
         self.var_skip.set(bool(cfg.get("skip_existing", False)))
         self.var_engine.set(str(cfg.get("pdf_engine", "auto")))
         self.var_log.set(str(cfg.get("log_level", "normal")))
+        self.var_open.set(bool(cfg.get("open_folder_after", False)))
         interval = float(cfg.get("request_interval", core.DEFAULT_CONFIG["request_interval"]))
         self.var_speed.set("礼貌" if interval >= 0.15 else ("标准" if interval > 0 else "极速"))
         split = int(cfg.get("split", 0) or 0)
@@ -449,11 +570,11 @@ class App:
         cfg["proxy"] = self.var_proxy.get().strip()
         cfg["download_path"] = self.path_var.get().strip()
         cfg["keep_singles"] = bool(self.var_keep.get())
-        cfg["open_folder_after"] = bool(self.var_open.get())
         cfg["skip_existing"] = bool(self.var_skip.get())
         cfg["pdf_engine"] = self.var_engine.get()
         cfg["log_level"] = self.var_log.get()
         cfg["batch_merge_mode"] = self.batch_mode.get()
+        cfg["open_folder_after"] = bool(self.var_open.get())
         cfg["request_interval"] = SPEED_MAP.get(self.var_speed.get(),
                                                 core.DEFAULT_CONFIG["request_interval"])
         cfg["split"] = SPLIT_MAP.get(self.var_split.get(), 0)
@@ -469,11 +590,17 @@ class App:
         return cfg
 
     # ------------------------------------------------------------------ 日志 / 队列
+    LOG_LIMIT = 2000
+
     def append_log(self, text: str, level: str = "info") -> None:
         stamp = datetime.datetime.now().strftime("%H:%M:%S")
         tag = level if level in ("warn", "error", "debug") else ""
         self.log.configure(state="normal")
         self.log.insert("end", "[%s] %s\n" % (stamp, text), tag)
+        # 只保留最近 2000 行，防止长时间运行把内存吃掉
+        lines = int(self.log.index("end-1c").split(".")[0])
+        if lines > self.LOG_LIMIT:
+            self.log.delete("1.0", "%d.0" % (lines - self.LOG_LIMIT))
         self.log.see("end")
         self.log.configure(state="disabled")
 
@@ -499,6 +626,15 @@ class App:
                         self.progress.configure(mode="determinate", value=max(0.0, min(1.0, fraction)) * 100)
                     if text:
                         self.progress_label.configure(text=text[:26])
+                elif kind == "probe":
+                    date, count, ok = payload
+                    if date == self._date_value() and hasattr(self, "edition_hint"):
+                        if not ok:
+                            self.edition_hint.configure(text="")
+                        elif count:
+                            self.edition_hint.configure(text="共 %d 版" % count)
+                        else:
+                            self.edition_hint.configure(text="当天无版面")
                 elif kind == "done":
                     self._finish(payload)
         except queue.Empty:
@@ -527,6 +663,15 @@ class App:
         for warn in warns:
             self.append_log("配置警告：%s" % warn, "warn")
 
+    def on_reset_config(self) -> None:
+        if not messagebox.askyesno("恢复默认", "把所有设置恢复成出厂默认值？"):
+            return
+        defaults, _ = core.validate_config(dict(core.DEFAULT_CONFIG))
+        self.cfg = defaults
+        core.save_config(defaults)
+        self._load_state()
+        self.append_log("已恢复默认配置")
+
     def on_start(self) -> None:
         if self.worker and self.worker.is_alive():
             return
@@ -538,10 +683,7 @@ class App:
 
         tab = self.notebook.index(self.notebook.select())
         if tab == 0:
-            date = self.date_var.get().strip() or self._today()
-            if not (date.isdigit() and len(date) == 8):
-                messagebox.showwarning("日期格式", "请输入 8 位日期，例如 %s" % self._today())
-                return
+            date = self._date_value()
             fmt = self._format(self.single_pdf.get(), self.single_text.get())
             if not fmt:
                 messagebox.showwarning("输出内容", "请至少勾选 PDF 或文章正文。")
@@ -576,9 +718,7 @@ class App:
         except OSError as exc:
             self.append_log("配置保存失败：%s" % exc, "warn")
 
-        self.log.configure(state="normal")
-        self.log.delete("1.0", "end")
-        self.log.configure(state="disabled")
+        self.append_log("─" * 34)
         self.append_log("开始 %s（格式 %s）" % (label, fmt))
         self.append_log("输出目录：%s" % core.out_root(cfg), "debug")
 
@@ -587,6 +727,8 @@ class App:
             on_progress=lambda fraction, text: self.queue.put(("progress", (fraction, text))),
         )
         self.session = core.Session(cfg, reporter)
+        self.status.configure(text="正在读取版面列表…")
+        self.root.configure(cursor="watch")
         self.start_btn.configure(state="disabled")
         self.stop_btn.configure(state="normal")
         self.open_last_btn.configure(state="disabled")
@@ -629,15 +771,25 @@ class App:
             pass
         self.progress.configure(mode="determinate", value=100 if code == 0 else 0)
         self.progress_label.configure(text="完成" if code == 0 else "已停止")
+        self.root.configure(cursor="")
+        self.status.configure(text="输出目录：%s" % core.out_root(self.cfg))
         self.start_btn.configure(state="normal")
         self.stop_btn.configure(state="disabled")
         self.last_output = path or ""
         self.open_last_btn.configure(state="normal" if self.last_output else "disabled")
+        failed = list(getattr(self.session, "last_failed", []) or [])
+        self.last_failed = failed
+        if failed:
+            self.retry_btn.configure(state="normal",
+                                     text="重试失败的 %d 天" % len(failed))
+        else:
+            self.retry_btn.configure(state="disabled", text="重试失败的 0 天")
         if code == 0:
             self.append_log("全部完成")
-            core.notify(self.cfg, core.APP_NAME, "人民日报下载完成")
-            if path and self.cfg.get("open_folder_after", True):
-                core.reveal(path)
+            if path:
+                self.append_log("已保存：%s（点「打开最近文件」定位）" % path)
+                if self.cfg.get("open_folder_after"):
+                    core.reveal(path)
         elif code == 130:
             self.append_log("任务已中断", "warn")
         else:
@@ -651,6 +803,16 @@ class App:
 
     def on_open(self) -> None:
         core.open_folder(core.out_root(self._collect()))
+
+    def on_retry_failed(self) -> None:
+        if not self.last_failed:
+            return
+        self.batch_var.set(",".join(self.last_failed))
+        self.batch_pdf.set(self.single_pdf.get())
+        self.batch_text.set(self.single_text.get())
+        self.notebook.select(1)
+        self.append_log("只重试失败的 %d 天" % len(self.last_failed))
+        self.on_start()
 
     def on_open_last(self) -> None:
         if self.last_output:

@@ -23,7 +23,7 @@
   "merged_filename": "人民日报-{date}-完整版",
   "auto_merge": true,
   "keep_singles": true,
-  "open_folder_after": true,
+  "open_folder_after": false,
   "skip_existing": false,
   "split": 0,
   "pdf_engine": "auto",

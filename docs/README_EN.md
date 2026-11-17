@@ -27,7 +27,8 @@ by a built-in standard-library implementation, so nothing needs to be `pip insta
 | **Text mode** | Extract article bodies, output `TXT` / `MD` / `DOC` / `DOCX` |
 | **Batch mode** | Date-range expressions; one file per day, or everything merged into one file |
 | **Edition filter** | Only download selected page numbers (e.g. pages 1 and 2) |
-| **Resume** | `skip_existing` skips already-downloaded pages, so an interrupted run can be restarted |
+| **Resume** | After a stop or crash, only the missing pages are downloaded |
+| **Retry failures** | Failed dates are listed and written to disk; one click retries just those days |
 | **Segmented download** | When a day has very few pages, one PDF is split into 4 Range requests (+61% per file) |
 | **Fully configurable** | Network, proxy, rate limit, concurrency, output, logging, scheduling in `config.json` |
 | **Zero dependencies** | Standard library only; `pypdf` is an optional fallback for exotic PDFs |
@@ -162,7 +163,7 @@ Created on first run. A broken file is backed up as `config.json.bad` and defaul
 | `merged_filename` | `"人民日报-{date}-完整版"` | Merged file name template (no extension) |
 | `auto_merge` | `true` | Merge automatically after downloading |
 | `keep_singles` | `true` | Keep the single-page folder after merging |
-| `open_folder_after` | `true` | Reveal the output when finished |
+| `open_folder_after` | `false` | Reveal the output when finished (off by default; the GUI has an "open" button) |
 | `skip_existing` | `false` | Skip single PDFs that already exist |
 | `pdf_engine` | `"auto"` | `auto` / `builtin` / `pypdf` |
 | `split` | `0` | Segments per file: `0`=auto (4 when ≤3 pages), `1`=off, `2–8`=fixed |
@@ -186,6 +187,22 @@ Created on first run. A broken file is backed up as `config.json.bad` and defaul
 | `beep_on_done` | `false` | Beep when finished |
 | `msg_on_done` | `false` | Show a message box when finished |
 | `auto_run` / `auto_run_time` | `false` / `"08:00"` | Used by `--task-install` |
+
+---
+
+## Keyboard shortcuts
+
+| Key | Action |
+|---|---|
+| `Enter` (in a date field) / `Ctrl+Enter` | Start |
+| `Esc` | Stop (only while running) |
+| `Ctrl+O` | Open the output folder |
+| `Ctrl+S` | Save settings |
+| `F1` | Open the README |
+
+The date is entered as three fields (year / month / day); changing the month clamps the day, so
+February can never show the 31st. The header also shows "共 N 版" before you start.
+The batch tab has 本周 / 本月 / 最近 N 天 shortcuts, with N editable (1–365).
 
 ---
 
@@ -357,6 +374,24 @@ How:
 - The single-page folder is deleted only after a boundary check — **never the output root or anything
   outside it** (previously `download_dir: ""` plus `keep_singles: false` deleted the whole output
   folder together with the freshly merged PDF)
+
+### v2.3.0
+
+A behaviour-only release — nothing visual changed:
+
+- **Three-field date input** (year/month/day) with month-aware day clamping
+- **"Last N days"** shortcut in the batch tab (N editable, 1–365)
+- **Shortcuts**: Enter to start, Esc to stop, Ctrl+O folder, Ctrl+S save, F1 help
+- **Stop takes effect immediately** (checked every 256 KB instead of after the current file)
+- **Stopping no longer wastes work**: finished pages are recorded in `.done`, so a re-run only
+  fetches what is missing
+- **Retry failures**: failed dates go to `failed-xxx.txt` and the GUI offers "retry N days"
+- **No focus stealing**: finished downloads no longer pop Explorer; there is an "open" button
+- **Log is appended, not cleared**, capped at 2000 lines
+- **Instant feedback on start** plus an automatic "N pages today" probe
+- **Proxy auto-prefixes `http://`**
+- **"Restore defaults"** button in settings
+- **Window height adapts to the screen**
 
 ### v2.2.1
 

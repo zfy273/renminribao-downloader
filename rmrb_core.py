@@ -30,7 +30,7 @@ from urllib.parse import urljoin, urlsplit
 import rmrb_pdf
 
 APP_NAME = "人民日报电子版下载器"
-APP_VERSION = "2.2.1"
+APP_VERSION = "2.3.0"
 
 # 打包成 exe 后，config.json / 下载目录 / 日志都放在 exe 同级
 def app_dir() -> str:
@@ -73,7 +73,7 @@ DEFAULT_CONFIG = {
     "merged_filename": "人民日报-{date}-完整版",
     "auto_merge": True,
     "keep_singles": True,
-    "open_folder_after": True,
+    "open_folder_after": False,   # 默认不抢焦点，界面给「打开」按钮
     "skip_existing": False,
     "split": 0,                    # 0=自动（版面<=3 时分片）1=关闭 2-8=固定路数
     "pdf_engine": "auto",          # auto / builtin / pypdf
@@ -277,6 +277,16 @@ def validate_config(cfg: Dict[str, object]) -> Tuple[Dict[str, object], List[str
         warns.append("log_level=%r 非法，回退为 normal" % cfg.get("log_level"))
         cfg["log_level"] = "normal"
 
+    # 代理：没写 scheme 就补 http://，否则 urllib 会当成主机名直接失败
+    proxy = str(cfg.get("proxy", "") or "").strip()
+    if proxy and "://" not in proxy:
+        proxy = "http://" + proxy
+        warns.append("proxy 已自动补全为 %s" % proxy)
+    if proxy and not re.match(r"^https?://", proxy):
+        warns.append("proxy 只支持 http/https，已清空")
+        proxy = ""
+    cfg["proxy"] = proxy
+
     # 控制台颜色
     colors = str(cfg.get("color_background", "0")) + str(cfg.get("color_foreground", "A"))
     if not re.fullmatch(r"[0-9A-Fa-f]{2}", colors):
@@ -314,6 +324,34 @@ def validate_config(cfg: Dict[str, object]) -> Tuple[Dict[str, object], List[str
             cfg[key] = DEFAULT_CONFIG[key]
 
     return cfg, warns
+
+
+DONE_MARKER = ".done"
+
+
+def load_done(out_dir: str) -> set:
+    """读取"上次已下完的版面"清单（停止/中断后下次不再重下）。"""
+    path = os.path.join(out_dir, DONE_MARKER)
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            return {line.strip() for line in fh if line.strip()}
+    except OSError:
+        return set()
+
+
+def mark_done(out_dir: str, edition: str) -> None:
+    try:
+        with open(os.path.join(out_dir, DONE_MARKER), "a", encoding="utf-8") as fh:
+            fh.write(edition + "\n")
+    except OSError:
+        pass
+
+
+def clear_done(out_dir: str) -> None:
+    try:
+        os.remove(os.path.join(out_dir, DONE_MARKER))
+    except OSError:
+        pass
 
 
 def _is_safe_relative(value: str) -> bool:
@@ -668,6 +706,7 @@ class Downloader:
                 try:
                     with open(tmp, "wb") as fh:
                         while True:
+                            self.reporter.check_stop()      # 每 256 KB 响应一次停止
                             chunk = response.read(262144)
                             if not chunk:
                                 break
@@ -744,6 +783,7 @@ class Downloader:
                         with open(tmp, "r+b") as fh:
                             fh.seek(start)
                             while True:
+                                self.reporter.check_stop()
                                 chunk = response.read(262144)
                                 if not chunk:
                                     break
@@ -1050,6 +1090,7 @@ class Session:
         self.dl = Downloader(self.cfg, self.reporter)
         self._node_cache: Dict[str, str] = {}
         self.last_output = ""       # 最近一次产物路径，供 CLI/GUI 打开
+        self.last_failed: List[str] = []   # 批量里失败的日期，供"重试失败"用
 
     # ---- 工具 ----
     def _disp(self, date: str) -> str:
@@ -1085,6 +1126,8 @@ class Session:
         os.makedirs(out_dir, exist_ok=True)
         base = str(self.cfg.get("base_url") or DEFAULT_CONFIG["base_url"])
         skip_existing = bool(self.cfg.get("skip_existing"))
+        done_editions = load_done(out_dir)          # 上次中断时已完成的部分
+        resumed = 0
         split = self.effective_split(len(nodes))
         if split > 1:
             self.reporter.debug("版面数 %d，启用 %d 路分片下载" % (len(nodes), split))
@@ -1094,8 +1137,9 @@ class Session:
         def work(edition: str):
             path = os.path.join(out_dir, "rmrb_%s_%s.pdf" % (date, edition))
             try:
-                if skip_existing and os.path.exists(path) and os.path.getsize(path) > 0:
-                    self.reporter.debug("跳过已存在的第%s版" % edition)
+                exists = os.path.exists(path) and os.path.getsize(path) > 0
+                if exists and (skip_existing or edition in done_editions):
+                    self.reporter.debug("跳过已下载的第%s版" % edition)
                     return path
                 html = self._node_html(date, edition)
                 found = re.findall(r"attachement/\d{6}/\d{2}/[0-9a-f-]+\.pdf", html)
@@ -1113,6 +1157,7 @@ class Session:
                 self.dl.download_file("%s/%s" % (base, found[0]), path, label, on_bytes,
                                       split=split)
                 self.reporter.info("第%s版下载完成  %.1f MB" % (edition, os.path.getsize(path) / 1048576))
+                mark_done(out_dir, edition)
                 return path
             except Stopped:
                 raise
@@ -1133,6 +1178,8 @@ class Session:
                 outcomes = list(pool.map(work, nodes))
         files = [p for p in outcomes if p]
         failed = [n for n, p in zip(nodes, outcomes) if not p]
+        if not failed:
+            clear_done(out_dir)                     # 全部成功，标记文件没用了
         return files, failed, out_dir
 
     def run_single_day_pdf(self, date: str, nodes: Sequence[str], root: str) -> Optional[str]:
@@ -1418,12 +1465,20 @@ class Session:
         if final:
             self.last_output = final
         self.reporter.progress(1.0, "完成")
+        self.last_failed = list(fail_days)
         self.reporter.info("批量汇总：成功 %d 天 / 跳过 %d 天 / 失败 %d 天"
                            % (len(ok_days), len(skip_days), len(fail_days)))
         if skip_days:
             self.reporter.info("跳过日期：%s" % ", ".join(skip_days))
         if fail_days:
             self.reporter.error("失败日期：%s" % ", ".join(fail_days))
+            try:
+                listing = os.path.join(root, "failed-%s.txt" % span.replace(" ", "_"))
+                with open(listing, "w", encoding="utf-8") as fh:
+                    fh.write("\n".join(fail_days) + "\n")
+                self.reporter.info("失败清单已保存：%s" % listing)
+            except OSError:
+                pass
         return 0 if ok_days else 1
 
 
@@ -1440,6 +1495,33 @@ def _normalize_date(token: str) -> str:
     except ValueError:
         raise ValueError("日期不存在（月份或日期越界）: %s" % token)
     return raw
+
+
+def days_in_month(year: int, month: int) -> int:
+    if month == 2:
+        leap = (year % 4 == 0 and year % 100 != 0) or year % 400 == 0
+        return 29 if leap else 28
+    return 30 if month in (4, 6, 9, 11) else 31
+
+
+def clamp_date(year: int, month: int, day: int) -> datetime.date:
+    """把用户随手填的年月日收成一个合法日期（2 月 30 日会落成 2 月 28/29 日）。"""
+    year = max(2000, min(2100, int(year)))
+    month = max(1, min(12, int(month)))
+    day = max(1, min(days_in_month(year, month), int(day)))
+    return datetime.date(year, month, day)
+
+
+def probe_edition_count(cfg: Dict[str, object], date: str) -> Tuple[int, bool]:
+    """只花一个请求，问出这天有多少版（GUI 用来做预期管理）。"""
+    local, _ = validate_config(dict(cfg))
+    reporter = Reporter()
+    downloader = Downloader(local, reporter)
+    try:
+        nodes, ok = get_nodes(downloader, date[:6], date[6:])
+        return len(nodes), ok
+    except Exception:
+        return 0, False
 
 
 def parse_batch_expr(expr: str) -> List[str]:

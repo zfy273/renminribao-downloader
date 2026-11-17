@@ -342,6 +342,47 @@ class TextOutputTest(unittest.TestCase):
 # 其它
 # --------------------------------------------------------------------------
 
+class DateUtilTest(unittest.TestCase):
+    def test_days_in_month(self):
+        self.assertEqual(core.days_in_month(2024, 2), 29)
+        self.assertEqual(core.days_in_month(2025, 2), 28)
+        self.assertEqual(core.days_in_month(2026, 4), 30)
+        self.assertEqual(core.days_in_month(2026, 1), 31)
+
+    def test_clamp_date_never_produces_illegal_day(self):
+        self.assertEqual(core.clamp_date(2026, 2, 31).isoformat(), "2026-02-28")
+        self.assertEqual(core.clamp_date(2024, 2, 31).isoformat(), "2024-02-29")
+        self.assertEqual(core.clamp_date(2026, 13, 40).month, 12)
+        self.assertEqual(core.clamp_date(1999, 1, 1).year, 2000)
+
+
+class ProxyConfigTest(unittest.TestCase):
+    def test_scheme_is_added_automatically(self):
+        cfg, warns = core.validate_config({"proxy": "127.0.0.1:7890"})
+        self.assertEqual(cfg["proxy"], "http://127.0.0.1:7890")
+        self.assertTrue(any("proxy" in w for w in warns))
+
+    def test_unsupported_scheme_is_dropped(self):
+        cfg, warns = core.validate_config({"proxy": "socks5://127.0.0.1:1080"})
+        self.assertEqual(cfg["proxy"], "")
+        self.assertTrue(any("proxy" in w for w in warns))
+
+    def test_http_proxy_kept_as_is(self):
+        cfg, _ = core.validate_config({"proxy": "http://127.0.0.1:7890"})
+        self.assertEqual(cfg["proxy"], "http://127.0.0.1:7890")
+
+
+class ResumeMarkerTest(unittest.TestCase):
+    def test_mark_load_clear(self):
+        folder = tempfile.mkdtemp(prefix="rmrb_done_")
+        self.assertEqual(core.load_done(folder), set())
+        core.mark_done(folder, "01")
+        core.mark_done(folder, "02")
+        self.assertEqual(core.load_done(folder), {"01", "02"})
+        core.clear_done(folder)
+        self.assertEqual(core.load_done(folder), set())
+
+
 class SplitTest(unittest.TestCase):
     def test_plan_ranges_covers_whole_file(self):
         for total, split in ((100, 1), (100, 4), (101, 4), (7, 3)):
